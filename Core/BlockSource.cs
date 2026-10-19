@@ -38,8 +38,11 @@ public sealed class LiveDiskSource : IBlockSource
     private readonly List<IDisposable> _owned = new();
     private readonly Logger _log;
     private readonly HashSet<string> _fallbackWarned = new();
+    private readonly IReadOnlyList<string> _exclude;
 
     public DiskInfo Disk { get; }
+    /// <summary>Folders whose files were left out ("Exclude folders"), to be emptied after a restore.</summary>
+    public List<ImageExclusion> Exclusions { get; } = new();
     public int BlockSize { get; } = DefaultBlockSize;
     public long DiskSize => Disk.Size;
     public int SectorSize => Disk.SectorSize;
@@ -47,16 +50,18 @@ public sealed class LiveDiskSource : IBlockSource
     public long MaxPartitionEnd => Disk.MaxPartitionEnd;
     public IReadOnlyList<long> Blocks { get; private set; } = Array.Empty<long>();
 
-    private LiveDiskSource(DiskInfo disk, Logger log)
+    private LiveDiskSource(DiskInfo disk, IReadOnlyList<string>? exclude, Logger log)
     {
         Disk = disk;
         _log = log;
+        _exclude = exclude ?? Array.Empty<string>();
         _disk = RawDevice.Open(disk.Path, write: false);
     }
 
-    public static LiveDiskSource Open(DiskInfo disk, bool useVss, Logger log, CancellationToken ct)
+    /// <param name="exclude">"Exclude folders" patterns such as C:\Users\*\Downloads.</param>
+    public static LiveDiskSource Open(DiskInfo disk, bool useVss, Logger log, CancellationToken ct, IReadOnlyList<string>? exclude = null)
     {
-        var src = new LiveDiskSource(disk, log);
+        var src = new LiveDiskSource(disk, exclude, log);
         try
         {
             src.Build(useVss, ct);
@@ -161,8 +166,50 @@ public sealed class LiveDiskSource : IBlockSource
 
         if (!mapped) MarkRange(used, p.Offset, p.End);
         if (vol?.DriveLetter != null && vol.FileSystem == "NTFS")
-            SkipSystemFiles(p, vol, region.Reader != _disk ? region.Reader.Path : null, used);
+        {
+            string? snapshotRoot = region.Reader != _disk ? region.Reader.Path : null;
+            SkipSystemFiles(p, vol, snapshotRoot, used);
+            if (mapped) SkipExcludedFolders(p, vol, snapshotRoot, used);
+        }
         _regions.Add(region);
+    }
+
+    /// <summary>
+    /// Leaves out the data of every file inside the job's excluded folders on this volume. The folders are
+    /// looked up in the snapshot (so the list matches what's being imaged) and recorded in the image, so a
+    /// restore can empty them: their files' data was never saved.
+    /// </summary>
+    private void SkipExcludedFolders(PartitionInfo p, VolumeInfo vol, string? snapshotRoot, bool[] used)
+    {
+        var patterns = _exclude.Where(x => x.Length > 3 && string.Equals(x[..2], vol.DriveLetter, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (patterns.Count == 0) return;
+        long cluster = ClusterSize(vol);
+        if (cluster <= 0) return;
+        string root = snapshotRoot ?? vol.DriveLetter!;
+        long total = 0;
+        int files = 0, unreadable = 0;
+        foreach (var pattern in patterns)
+        {
+            var folders = Core.Exclusions.Expand(root, pattern[2..]);
+            if (folders.Count == 0) _log.Info($"Exclude {pattern}: no matching folder on this disk.");
+            foreach (var rel in folders)
+            {
+                if (Exclusions.Any(e => e.PartitionOffset == p.Offset && string.Equals(e.Folder, rel, StringComparison.OrdinalIgnoreCase))) continue;
+                Exclusions.Add(new ImageExclusion { PartitionOffset = p.Offset, Folder = rel });
+                foreach (var file in Core.Exclusions.FilesBelow(root + rel))
+                {
+                    try
+                    {
+                        total += UnmarkExtents(used, p.Offset, cluster, BlockSize, FileExtents(file), 0);
+                        files++;
+                    }
+                    catch { unreadable++; } // small files live inside the MFT and have no data runs; locked ones are left in
+                }
+            }
+        }
+        if (Exclusions.Count > 0)
+            _log.Info($"{vol.DriveLetter}: excluding {Exclusions.Count(e => e.PartitionOffset == p.Offset)} folder(s), {files:N0} files; " +
+                      $"saved {Util.FormatBytes(total)}{(unreadable > 0 ? $" ({unreadable:N0} small or locked files stay in the image)" : "")}.");
     }
 
     /// <summary>Windows recreates these at boot, so their contents never need backing up.</summary>

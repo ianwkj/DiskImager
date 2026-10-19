@@ -623,6 +623,45 @@ using (var awake = new KeepAwake("DiskImager smoke test", log))
 // ---- Password protection round-trip.
 Check(JobStore.Unprotect(JobStore.Protect("s3cret!")) == "s3cret!", "NAS password encrypt/decrypt");
 
+// ---- Exclude folders: rules, matching and emptying (the disk-level part runs in the server test).
+{
+    Check(Exclusions.Validate(@"C:\Users\*\Downloads") == null && Exclusions.Validate(@"D:\Data\Cache\") == null, "exclude: normal folder patterns accepted");
+    Check(Exclusions.Validate(@"C:\") != null && Exclusions.Validate(@"C:\Windows") != null && Exclusions.Validate(@"c:\users") != null
+          && Exclusions.Validate(@"C:\*") != null && Exclusions.Validate(@"Downloads") != null && Exclusions.Validate(@"C:\a\..\Windows") != null,
+        "exclude: drive roots, system folders, relative and .. paths refused");
+
+    string ex = Path.Combine(work, "exclude");
+    foreach (var u in new[] { "amy", "bob", "Public" }) Directory.CreateDirectory(Path.Combine(ex, "Users", u, "Downloads", "sub"));
+    Directory.Delete(Path.Combine(ex, "Users", "Public", "Downloads"), true);
+    File.WriteAllText(Path.Combine(ex, "Users", "amy", "Downloads", "a.txt"), "a");
+    File.WriteAllText(Path.Combine(ex, "Users", "amy", "Downloads", "sub", "b.txt"), "b");
+    File.SetAttributes(Path.Combine(ex, "Users", "amy", "Downloads", "a.txt"), FileAttributes.ReadOnly | FileAttributes.Hidden);
+    // A junction inside an excluded folder must not lead outside it.
+    string outside = Path.Combine(ex, "Keep");
+    Directory.CreateDirectory(outside);
+    File.WriteAllText(Path.Combine(outside, "precious.txt"), "keep me");
+    var mk = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe",
+        $"/c mklink /J \"{Path.Combine(ex, "Users", "bob", "Downloads", "link")}\" \"{outside}\"") { CreateNoWindow = true, UseShellExecute = false })!;
+    mk.WaitForExit();
+
+    var found = Exclusions.Expand(ex, @"\Users\*\Downloads");
+    Check(found.Count == 2 && found.Contains(@"\Users\amy\Downloads") && found.Contains(@"\Users\bob\Downloads"),
+        $"exclude: * matches each user's folder ({string.Join(", ", found)})");
+    Check(Exclusions.Expand(ex, @"\Users\amy\Downloads").Count == 1 && Exclusions.Expand(ex, @"\Users\zed\Downloads").Count == 0,
+        "exclude: exact folders found, missing ones ignored");
+    var files = Exclusions.FilesBelow(Path.Combine(ex, "Users", "bob", "Downloads")).ToList();
+    Check(files.Count == 0, "exclude: files behind a junction are not counted as excluded");
+    Check(Exclusions.FilesBelow(Path.Combine(ex, "Users", "amy", "Downloads")).Count() == 2, "exclude: hidden, read-only and nested files included");
+
+    int removed = Exclusions.EmptyFolder(Path.Combine(ex, "Users", "amy", "Downloads"), log)
+                + Exclusions.EmptyFolder(Path.Combine(ex, "Users", "bob", "Downloads"), log);
+    Check(removed == 2 && Directory.Exists(Path.Combine(ex, "Users", "amy", "Downloads"))
+          && !Directory.EnumerateFileSystemEntries(Path.Combine(ex, "Users", "amy", "Downloads")).Any()
+          && !Directory.EnumerateFileSystemEntries(Path.Combine(ex, "Users", "bob", "Downloads")).Any(),
+        "exclude: restored folders emptied but kept");
+    Check(File.Exists(Path.Combine(outside, "precious.txt")), "exclude: emptying never follows a junction out of the folder");
+}
+
 // ---- Removed after-backup choices: old jobs set to Sleep/Hibernate still load, as "do nothing".
 {
     var loaded = JobStore.Parse("[{\"Name\":\"A\",\"After\":\"Sleep\"},{\"Name\":\"B\",\"After\":\"Hibernate\"},{\"Name\":\"C\",\"After\":\"Shutdown\"},{\"Name\":\"D\",\"After\":\"Restart\"}]");

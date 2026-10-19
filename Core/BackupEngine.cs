@@ -19,6 +19,8 @@ public sealed class BackupRequest
     public bool UseVss { get; init; } = true;
     /// <summary>Leave deleting old sets to the caller (it runs clean-up after "verify image when complete").</summary>
     public bool DeferRetention { get; init; }
+    /// <summary>"Exclude folders" patterns, e.g. C:\Users\*\Downloads.</summary>
+    public IReadOnlyList<string> ExcludeFolders { get; init; } = Array.Empty<string>();
 }
 
 public sealed class BackupResult
@@ -88,7 +90,7 @@ public static class BackupEngine
         bool full = parent == null;
 
         log.Info($"Starting {(full ? "FULL" : "INCREMENTAL")} backup of {req.Disk.Title} to {req.DestinationFolder}");
-        using var source = LiveDiskSource.Open(req.Disk, req.UseVss, log, ct);
+        using var source = LiveDiskSource.Open(req.Disk, req.UseVss, log, ct, req.ExcludeFolders);
         string? spaceWarning = CheckFreeSpace(req, full, (long)source.Blocks.Count * source.BlockSize, chain, log);
 
         string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
@@ -111,6 +113,7 @@ public static class BackupEngine
             DiskModel = req.Disk.Model,
             Style = req.Disk.Style,
             UsedBytes = (long)source.Blocks.Count * source.BlockSize,
+            Exclusions = source.Exclusions,
             Partitions = req.Disk.Partitions.Select(p => new ImagePartition
             {
                 Number = p.Number, Offset = p.Offset, Length = p.Length, IsContainer = p.IsContainer, Type = p.TypeName,

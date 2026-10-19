@@ -65,6 +65,8 @@ public sealed class BackupJob
     public NotifyWhen Notify { get; set; } = NotifyWhen.OnFailure;
     /// <summary>Re-read and check each backup straight after it's made.</summary>
     public bool VerifyAfter { get; set; }
+    /// <summary>Folders left out of the image, e.g. C:\Users\*\Downloads (restored as empty folders).</summary>
+    public List<string> ExcludeFolders { get; set; } = new();
     public bool WakeToRun { get; set; } = true;
     public List<string> RegisteredTasks { get; set; } = new();
     public DateTime? LastRunUtc { get; set; }

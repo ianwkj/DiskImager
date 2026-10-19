@@ -48,6 +48,7 @@ public static class JobRunner
             MaxIncrementals = job.MaxIncrementals,
             KeepFullSets = job.KeepFullSets,
             DeferRetention = true,
+            ExcludeFolders = job.ExcludeFolders,
         }, progress, ct, log);
         // Verify first, then clean up: old backups are only deleted once the new one is known to be good.
         if (job.VerifyAfter) BackupEngine.VerifyNewImage(result, progress, ct, log);

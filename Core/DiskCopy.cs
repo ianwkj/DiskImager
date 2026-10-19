@@ -14,9 +14,10 @@ public static class DiskCopy
     public static void Execute(IBlockSource src, LayoutPlan plan, DiskInfo target, bool newIds, string? stagingFolder,
         string stage, IProgress<ProgressInfo>? progress, CancellationToken ct, Logger log)
     {
+        var excluded = (src as ImageReader)?.Header.Exclusions;
         if (!plan.NeedsShrink)
         {
-            DiskWriterEngine.Write(src, target, plan, newIds, stage, progress, ct, log);
+            DiskWriterEngine.Write(src, target, plan, newIds, stage, progress, ct, log, emptyAfter: excluded);
             return;
         }
         if (string.IsNullOrEmpty(stagingFolder))
@@ -81,7 +82,8 @@ public static class DiskCopy
                 Parts = staged.Parts.Zip(plan.Parts, (s, p) => new PlanPart { Source = s, TargetOffset = p.TargetOffset, TargetLength = p.TargetLength }).ToList(),
             };
             using var workSource = LiveDiskSource.Open(work, useVss: false, log, ct);
-            DiskWriterEngine.Write(workSource, target, finalPlan, newIds, "Step 2 of 2: " + stage.ToLowerInvariant(), progress, ct, log, tableOverride: table);
+            DiskWriterEngine.Write(workSource, target, finalPlan, newIds, "Step 2 of 2: " + stage.ToLowerInvariant(), progress, ct, log,
+                tableOverride: table, emptyAfter: excluded);
         }
         finally
         {

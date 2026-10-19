@@ -60,10 +60,14 @@ public static class DiskWriterEngine
     /// </summary>
     /// <param name="tableOverride">Partition table bytes to use instead of the source's own
     /// (used when the source is a staging copy that carries temporary disk IDs).</param>
+    /// <param name="emptyAfter">Folders excluded from the image: emptied on the target once it's written.</param>
     public static void Write(IBlockSource src, DiskInfo target, LayoutPlan plan, bool newIds, string stage,
-        IProgress<ProgressInfo>? progress, CancellationToken ct, Logger log, byte[]? tableOverride = null)
+        IProgress<ProgressInfo>? progress, CancellationToken ct, Logger log, byte[]? tableOverride = null,
+        IReadOnlyList<ImageExclusion>? emptyAfter = null)
     {
-        if (plan.IsIdentity && tableOverride == null)
+        bool isDisk = target.Path.StartsWith(@"\\.\PhysicalDrive", StringComparison.OrdinalIgnoreCase);
+        bool cleanup = emptyAfter is { Count: > 0 } && isDisk;
+        if (plan.IsIdentity && tableOverride == null && !cleanup)
         {
             Write(src, target, newIds, stage, progress, ct, log);
             return;
@@ -78,10 +82,12 @@ public static class DiskWriterEngine
         int bs = src.BlockSize;
         byte[] table = tableOverride ?? ReadTableArea(src, plan);
         var final = PartitionTable.Build(table, plan, newIds);
-        // Extending needs Windows to mount the new volumes. If the copy keeps the source's disk IDs while the
-        // source is still attached, Windows would hide it (signature collision), so mount it with temporary IDs first.
+        // Extending and emptying excluded folders need Windows to mount the new volumes. If the copy keeps the
+        // source's disk IDs while the source is still attached, Windows would hide it (signature collision),
+        // so mount it with temporary IDs first.
         bool extend = plan.NeedsExtend;
-        var first = extend && !newIds ? PartitionTable.Build(table, plan, newIds: true) : final;
+        bool mount = extend || cleanup;
+        var first = mount && !newIds ? PartitionTable.Build(table, plan, newIds: true) : final;
 
         foreach (var p in plan.Parts.Where(p => p.TargetOffset != p.Source.Offset || p.TargetLength != p.Source.Length))
             log.Info($"{p.Source.Name}: {Util.FormatBytes(p.Source.Length)} -> {Util.FormatBytes(p.TargetLength)}" +
@@ -116,10 +122,18 @@ public static class DiskWriterEngine
             tracker.Report(done, force: true);
         }
 
-        if (extend)
+        if (mount)
         {
-            progress?.Report(new ProgressInfo("Extending file systems", 0, 0, 0));
-            ExtendFileSystems(target, plan, log, ct);
+            if (extend)
+            {
+                progress?.Report(new ProgressInfo("Extending file systems", 0, 0, 0));
+                ExtendFileSystems(target, plan, log, ct);
+            }
+            if (cleanup)
+            {
+                progress?.Report(new ProgressInfo("Emptying excluded folders", 0, 0, 0));
+                EmptyExcludedFolders(target, plan, emptyAfter!, log, ct);
+            }
             if (!ReferenceEquals(first, final))
             {
                 using var dev = TargetDisk.Open(target, log, clearLayout: false);
@@ -243,6 +257,29 @@ public static class DiskWriterEngine
                 log.Warn($"{p.Source.Name}: could not extend the file system ({ex.Message}). {manual}");
             }
         }
+    }
+
+    /// <summary>
+    /// The files in excluded folders were never backed up: on the restored disk their entries would point at
+    /// whatever the target held before. Empty those folders so nothing invalid is left behind.
+    /// </summary>
+    private static void EmptyExcludedFolders(DiskInfo target, LayoutPlan plan, IReadOnlyList<ImageExclusion> folders, Logger log, CancellationToken ct)
+    {
+        int removed = 0;
+        foreach (var group in folders.GroupBy(f => f.PartitionOffset))
+        {
+            var part = plan.Parts.FirstOrDefault(p => p.Source.Offset == group.Key);
+            if (part == null) continue;
+            var v = WaitForVolume(target.Number, part.TargetOffset, TimeSpan.FromSeconds(45), ct);
+            if (v == null)
+            {
+                log.Warn($"{part.Source.Name}: Windows didn't mount the restored partition, so these excluded folders couldn't be emptied: " +
+                         $"{string.Join(", ", group.Select(f => f.Folder))}. Their files weren't backed up and hold no valid data; delete them before using the disk.");
+                continue;
+            }
+            foreach (var f in group) removed += Exclusions.EmptyFolder(v.GuidPath + f.Folder.TrimStart('\\'), log);
+        }
+        log.Info($"Excluded folders emptied on the restored disk ({removed:N0} files that weren't backed up were removed).");
     }
 
     private static bool TryExtend(SafeFileHandle h, long sectors) =>

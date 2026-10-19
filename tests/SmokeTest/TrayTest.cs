@@ -18,7 +18,7 @@ static class TrayTest
         while (!AgentChannel.AnyAgentAlive() && DateTime.UtcNow < until) Thread.Sleep(250);
         Check(AgentChannel.AnyAgentAlive(), "tray helper starts and reports it's alive");
 
-        using (var status = new BackgroundStatus.Publisher("Nightly C drive", "Disk 1 – XPG GAMMIX S70 BLADE (953.9 GB)  →  \\\\NAS\\Backups\\OFFICE-PC"))
+        using (var status = new BackgroundStatus.Publisher("Nightly C drive", "Disk 1 – NVMe SSD (1 TB)  →  \\\\NAS\\Backups\\OFFICE-PC"))
         {
             // 1. Countdown pop-up, answered by clicking "Start now".
             var prompt = Guid.NewGuid();

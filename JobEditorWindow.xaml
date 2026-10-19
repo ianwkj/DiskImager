@@ -57,6 +57,18 @@
                 </Grid>
             </GroupBox>
 
+            <GroupBox Header="Exclude folders">
+                <StackPanel>
+                    <TextBox x:Name="ExcludeBox" AcceptsReturn="True" Height="78" TextWrapping="NoWrap" VerticalContentAlignment="Top"
+                             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" FontFamily="Consolas"/>
+                    <DockPanel Margin="0,6,0,0">
+                        <Button DockPanel.Dock="Right" Content="Add suggested" Tag="&#xE710;" Click="AddSuggested_Click" Margin="10,0,0,0" VerticalAlignment="Top"/>
+                        <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap"
+                                   Text="One folder per line; * matches any name, e.g. C:\Users\*\Downloads. Their files aren't backed up, and a restored PC gets these folders back empty. Leave blank to back up everything."/>
+                    </DockPanel>
+                </StackPanel>
+            </GroupBox>
+
             <GroupBox x:Name="OneOffGroup" Header="Backup type">
                 <StackPanel>
                     <RadioButton x:Name="OneOffFull" Content="Full – a complete, stand-alone image" IsChecked="True" Margin="0,2"/>

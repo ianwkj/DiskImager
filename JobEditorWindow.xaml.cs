@@ -44,6 +44,7 @@ public partial class JobEditorWindow : Window
         VerifyBox.IsChecked = Job.VerifyAfter;
         NotifyBox.SelectedIndex = (int)Job.Notify;
         NotifyHint.Text = AppSettings.Load().Email.Enabled ? "" : "Set up email on the Settings tab first.";
+        ExcludeBox.Text = string.Join(Environment.NewLine, Job.ExcludeFolders);
         KeepBox.Text = Job.KeepFullSets.ToString();
         MaxIncrBox.Text = Job.MaxIncrementals.ToString();
         if (!string.IsNullOrEmpty(Job.NetPasswordProtected))
@@ -96,6 +97,16 @@ public partial class JobEditorWindow : Window
         NetLabel.Visibility = NetPanel.Visibility = v;
     }
 
+    private List<string> ExcludeLines() =>
+        ExcludeBox.Text.Split('\n').Select(l => l.Trim().TrimEnd('\\')).Where(l => l.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+    private void AddSuggested_Click(object sender, RoutedEventArgs e)
+    {
+        var lines = ExcludeLines();
+        lines.AddRange(Exclusions.Suggested.Where(s => !lines.Contains(s, StringComparer.OrdinalIgnoreCase)));
+        ExcludeBox.Text = string.Join(Environment.NewLine, lines);
+    }
+
     private void Browse_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new OpenFolderDialog { Title = "Where should images be saved?" };
@@ -146,6 +157,9 @@ public partial class JobEditorWindow : Window
             if (dest.Length < 2) throw new ArgumentException("Choose where to save the images.");
             if (NetworkShare.IsNetworkPath(dest)) NetworkShare.ShareRoot(dest);
             else if (!(dest.Length >= 2 && dest[1] == ':')) throw new ArgumentException("Use a full path like E:\\Backups or \\\\NAS\\Backups.");
+            var exclude = ExcludeLines();
+            foreach (var x in exclude)
+                if (Exclusions.Validate(x) is string why) throw new ArgumentException(why);
             if (!int.TryParse(KeepBox.Text, out int keep) || keep < 0) throw new ArgumentException("Enter how many full backups to keep (0 = keep everything).");
             if (!int.TryParse(MaxIncrBox.Text, out int maxIncr) || maxIncr < 0) throw new ArgumentException("Enter after how many incrementals to start a fresh full backup (0 = only on the full schedule).");
 
@@ -179,6 +193,7 @@ public partial class JobEditorWindow : Window
             Job.After = (PostAction)Math.Max(0, AfterBox.SelectedIndex);
             Job.WakeToRun = WakeBox.IsChecked == true;
             Job.VerifyAfter = VerifyBox.IsChecked == true;
+            Job.ExcludeFolders = exclude;
             if (!_oneOff) Job.Notify = (NotifyWhen)Math.Max(0, NotifyBox.SelectedIndex);
             Job.KeepFullSets = keep;
             Job.MaxIncrementals = maxIncr;

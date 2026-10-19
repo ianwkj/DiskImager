@@ -49,6 +49,8 @@ public sealed class ImageHeader
     public DiskStyle Style { get; set; }
     public List<ImagePartition> Partitions { get; set; } = new();
     public long UsedBytes { get; set; }
+    /// <summary>Folders whose files weren't stored ("Exclude folders"); a restore empties them.</summary>
+    public List<ImageExclusion> Exclusions { get; set; } = new();
 
     [JsonIgnore] public string KindText => IsFull ? "Full" : $"Incremental #{ChainOrdinal}";
 }
