@@ -14,6 +14,15 @@ apt-get update
 apt-get install -y --no-install-recommends live-build ca-certificates curl gnupg imagemagick fonts-dejavu-core xorriso \
     squashfs-tools dosfstools mtools grub-efi-amd64-bin grub-pc-bin shim-signed grub-efi-amd64-signed syslinux isolinux syslinux-common
 
+# Check every package in the lists exists in trixie up front, so one run reports them all.
+sed -i 's/^Components: main$/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources
+apt-get update -qq
+MISSING=""
+for p in $(grep -hv '^\s*#' "$HERE"/config/package-lists/*.list.chroot); do
+    apt-cache show "$p" >/dev/null 2>&1 || MISSING="$MISSING $p"
+done
+if [ -n "$MISSING" ]; then echo "These packages don't exist in Debian trixie:$MISSING"; exit 1; fi
+
 test -x "$HERE/config/includes.chroot/opt/diskimager/diskimager-rescue" || { echo "The rescue app isn't in config/includes.chroot/opt/diskimager"; exit 1; }
 echo "$VERSION" > "$HERE/config/includes.chroot/opt/diskimager/VERSION"
 
