@@ -17,12 +17,6 @@ public static class PowerActions
             case PostAction.Restart:
                 Run("/r /f /t 60 /c \"" + msg.Replace("shut down", "restart") + "\"");
                 break;
-            case PostAction.Hibernate:
-                Run("/h");
-                break;
-            case PostAction.Sleep:
-                Native.SetSuspendState(false, false, false);
-                break;
         }
     }
 

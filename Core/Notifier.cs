@@ -325,8 +325,6 @@ public static class Notifier
     {
         PostAction.Shutdown => "shut down",
         PostAction.Restart => "restart",
-        PostAction.Sleep => "sleep",
-        PostAction.Hibernate => "hibernate",
         _ => "do nothing",
     };
 

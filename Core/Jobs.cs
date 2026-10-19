@@ -7,6 +7,8 @@ namespace DiskImager.Core;
 
 public enum ScheduleKind { None, Daily, Weekly, Monthly }
 
+// Sleep and Hibernate were removed as choices in 1.2.1. They stay here so older jobs.json files still load;
+// JobStore.Load turns them into None.
 public enum PostAction { None, Shutdown, Restart, Sleep, Hibernate }
 
 public sealed class Schedule
@@ -100,13 +102,20 @@ public static class JobStore
     {
         try
         {
-            if (!File.Exists(JobsFile)) return new();
-            return JsonSerializer.Deserialize<List<BackupJob>>(File.ReadAllText(JobsFile), Json) ?? new();
+            return File.Exists(JobsFile) ? Parse(File.ReadAllText(JobsFile)) : new();
         }
         catch
         {
             return new();
         }
+    }
+
+    public static List<BackupJob> Parse(string json)
+    {
+        var jobs = JsonSerializer.Deserialize<List<BackupJob>>(json, Json) ?? new();
+        foreach (var j in jobs)
+            if (j.After is PostAction.Sleep or PostAction.Hibernate) j.After = PostAction.None;
+        return jobs;
     }
 
     public static void Save(List<BackupJob> jobs)

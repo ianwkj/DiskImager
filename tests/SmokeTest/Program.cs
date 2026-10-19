@@ -623,6 +623,14 @@ using (var awake = new KeepAwake("DiskImager smoke test", log))
 // ---- Password protection round-trip.
 Check(JobStore.Unprotect(JobStore.Protect("s3cret!")) == "s3cret!", "NAS password encrypt/decrypt");
 
+// ---- Removed after-backup choices: old jobs set to Sleep/Hibernate still load, as "do nothing".
+{
+    var loaded = JobStore.Parse("[{\"Name\":\"A\",\"After\":\"Sleep\"},{\"Name\":\"B\",\"After\":\"Hibernate\"},{\"Name\":\"C\",\"After\":\"Shutdown\"},{\"Name\":\"D\",\"After\":\"Restart\"}]");
+    Check(loaded.Count == 4, "jobs saved with Sleep/Hibernate by older versions still load");
+    Check(loaded.Select(j => j.After).SequenceEqual(new[] { PostAction.None, PostAction.None, PostAction.Shutdown, PostAction.Restart }),
+        "Sleep/Hibernate become 'do nothing'; Shut down and Restart are kept");
+}
+
 // ---- Auto-update: version tags, signatures, and a fake GitHub serving releases.
 await UpdaterTest.Run(work, log, Check);
 

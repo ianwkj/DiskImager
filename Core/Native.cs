@@ -87,9 +87,6 @@ internal static unsafe class Native
     [DllImport("mpr.dll", CharSet = CharSet.Unicode)]
     public static extern int WNetCancelConnection2W(string name, int flags, bool force);
 
-    [DllImport("powrprof.dll", SetLastError = true)]
-    public static extern bool SetSuspendState(bool hibernate, bool forceCritical, bool disableWakeEvent);
-
     public static SafeFileHandle Open(string path, uint access)
     {
         var h = CreateFileW(path, access, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);

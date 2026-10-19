@@ -82,8 +82,6 @@
                         <ComboBoxItem>Do nothing</ComboBoxItem>
                         <ComboBoxItem>Shut down the PC</ComboBoxItem>
                         <ComboBoxItem>Restart the PC</ComboBoxItem>
-                        <ComboBoxItem>Sleep</ComboBoxItem>
-                        <ComboBoxItem>Hibernate</ComboBoxItem>
                     </ComboBox>
                     <TextBlock Grid.Row="3" Text="Email me" VerticalAlignment="Center"/>
                     <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Margin="0,3">

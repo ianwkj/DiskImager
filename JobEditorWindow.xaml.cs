@@ -39,7 +39,7 @@ public partial class JobEditorWindow : Window
         CompressionBox.SelectedIndex = (int)Job.Compression;
         FullSchedule.Load(Job.Full);
         IncrSchedule.Load(Job.Incremental);
-        AfterBox.SelectedIndex = (int)Job.After;
+        AfterBox.SelectedIndex = Job.After is PostAction.Shutdown or PostAction.Restart ? (int)Job.After : 0;
         WakeBox.IsChecked = Job.WakeToRun;
         VerifyBox.IsChecked = Job.VerifyAfter;
         NotifyBox.SelectedIndex = (int)Job.Notify;

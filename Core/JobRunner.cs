@@ -131,7 +131,6 @@ public static class JobRunner
         int code;
         AgentChannel.EnsureFolder();
         // Keep the PC awake for the whole run, including any wait for another operation to finish.
-        // Released before the after-backup action, so "Sleep" / "Hibernate" still work.
         using (new KeepAwake($"DiskImager: scheduled backup '{job.Name}' is running", log))
         using (var status = new BackgroundStatus.Publisher(job.Name, Describe(job)))
         {
