@@ -29,6 +29,9 @@
   <ItemGroup>
     <Compile Remove="tests\**" />
     <Compile Remove="installer\**" />
+    <Compile Remove="rescue\**" />
+    <None Remove="rescue\**" />
+    <AvaloniaXaml Remove="rescue\**" />
     <Page Remove="installer\**" />
     <None Remove="installer\**" />
     <EmbeddedResource Remove="installer\**" />

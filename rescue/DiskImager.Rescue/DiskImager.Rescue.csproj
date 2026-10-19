@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The graphical rescue app on the TechSource Rescue USB (Linux). Shares DiskImager's engine (the portable
+       files of ..\..\Core) and adds Linux disk access. Also runs on Windows with demo disks, for development. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>diskimager-rescue</AssemblyName>
+    <RootNamespace>DiskImager.Rescue</RootNamespace>
+    <Version>1.4.0</Version>
+    <Product>DiskImager Rescue</Product>
+    <Company>TechSource Digital</Company>
+    <Copyright>© 2026 TechSource Digital</Copyright>
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+    <NoWarn>CA1416</NoWarn>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\Core\ImageFormat.cs;..\..\Core\ImageCrypto.cs;..\..\Core\ImageCatalog.cs;..\..\Core\Layout.cs;..\..\Core\Gpt.cs;..\..\Core\DiskModel.cs;..\..\Core\Exclusions.cs;..\..\Core\Util.cs;..\..\Core\Logger.cs;..\..\Core\FileRestore.cs;..\..\Core\Native.cs;..\..\Core\IBlockSource.cs" LinkBase="Engine" />
+    <Compile Include="..\..\Core\Ntfs\VolumeReader.cs;..\..\Core\Ntfs\NtfsVolume.cs;..\..\Core\Ntfs\NtfsStreams.cs;..\..\Core\Ntfs\Decompressors.cs" LinkBase="Engine\Ntfs" />
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.22" />
+  </ItemGroup>
+
+</Project>

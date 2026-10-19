@@ -41,6 +41,10 @@ static class NtfsTest
 
         CheckVolume(a, Partition(a), Path.Combine(fixtures, "ntfs-fixture-a.json"), "A", work, log, check);
         CheckVolume(b, Partition(b), Path.Combine(fixtures, "ntfs-fixture-b.json"), "B", work, log, check);
+        // The same volume again with the built-in .NET decompressors the Linux rescue system uses.
+        RtlCompression.ForceManaged = true;
+        try { CheckVolume(a, Partition(a), Path.Combine(fixtures, "ntfs-fixture-a.json"), "A (Linux decompressors)", work, log, check); }
+        finally { RtlCompression.ForceManaged = false; }
         CheckTracking(a, b, Partition(a), check);
         CheckThroughImage(a, Partition(a), Path.Combine(fixtures, "ntfs-fixture-a.json"), work, log, check);
     }

@@ -2,27 +2,10 @@ using System.Runtime.InteropServices;
 
 namespace DiskImager.Core;
 
-/// <summary>
-/// A disk expressed as fixed-size blocks at absolute disk offsets. Only "used" blocks are listed;
-/// anything not listed is free space and never needs to be copied.
-/// Implemented by a live disk (backup / clone) and by an image file (restore).
-/// </summary>
-public interface IBlockSource : IDisposable
-{
-    int BlockSize { get; }
-    long DiskSize { get; }
-    int SectorSize { get; }
-    DiskStyle Style { get; }
-    long MaxPartitionEnd { get; }
-    IReadOnlyList<long> Blocks { get; }
-    /// <summary>Fills buffer[0..length) with the block's bytes.</summary>
-    void ReadBlock(long blockIndex, byte[] buffer, out int length);
-}
-
 /// <summary>Reads a physical disk that may be in use, via VSS snapshots, skipping free NTFS clusters.</summary>
 public sealed class LiveDiskSource : IBlockSource
 {
-    public const int DefaultBlockSize = 1 << 20;
+    public const int DefaultBlockSize = ImageFormat.DefaultBlockSize;
     private const long MaxRawGap = 64L << 20;
 
     private sealed class Region

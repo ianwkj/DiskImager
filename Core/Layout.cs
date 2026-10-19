@@ -38,7 +38,7 @@ public sealed class SourceDescription
         var parts = d.DataPartitions.Select(p =>
         {
             long used = p.Length;
-            if (p.Volume != null && Native.GetDiskFreeSpaceExW(p.Volume.GuidPath, out _, out ulong total, out ulong free))
+            if (OperatingSystem.IsWindows() && p.Volume != null && Native.GetDiskFreeSpaceExW(p.Volume.GuidPath, out _, out ulong total, out ulong free))
                 used = Math.Min(p.Length, (long)(total - free));
             return new SourcePart
             {

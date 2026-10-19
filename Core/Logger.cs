@@ -9,7 +9,11 @@ public sealed class Logger
 
     public string FilePath => System.IO.Path.Combine(LogFolder, $"{DateTime.Now:yyyy-MM-dd}.log");
 
-    public static string LogFolder => System.IO.Path.Combine(JobStore.DataFolder, "Logs");
+    /// <summary>Where logs go instead of ProgramData (the Linux rescue system sets this).</summary>
+    public static string? FolderOverride { get; set; }
+
+    public static string LogFolder => FolderOverride ??
+        System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "DiskImager", "Logs");
 
     public void Info(string message) => Write("INFO ", message);
     public void Warn(string message) => Write("WARN ", message);

@@ -1,0 +1,98 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="DiskImager.Rescue.App"
+             RequestedThemeVariant="Light">
+    <Application.Resources>
+        <SolidColorBrush x:Key="Accent" Color="#2563EB"/>
+        <SolidColorBrush x:Key="AccentSoft" Color="#DBEAFE"/>
+        <SolidColorBrush x:Key="Ink" Color="#0F172A"/>
+        <SolidColorBrush x:Key="Muted" Color="#64748B"/>
+        <SolidColorBrush x:Key="Line" Color="#E2E8F0"/>
+        <SolidColorBrush x:Key="Page" Color="#F1F5F9"/>
+        <SolidColorBrush x:Key="Danger" Color="#DC2626"/>
+    </Application.Resources>
+    <Application.Styles>
+        <FluentTheme/>
+        <Style Selector="Window">
+            <Setter Property="FontFamily" Value="avares://Avalonia.Fonts.Inter/Assets#Inter, $Default"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Foreground" Value="#0F172A"/>
+        </Style>
+        <Style Selector="TextBlock.h1">
+            <Setter Property="FontSize" Value="24"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+        </Style>
+        <Style Selector="TextBlock.sub">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Foreground" Value="#64748B"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,0,0,18"/>
+        </Style>
+        <Style Selector="TextBlock.hint">
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="Foreground" Value="#64748B"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style Selector="TextBlock.label">
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="#64748B"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+        <Style Selector="Border.card">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderBrush" Value="#E2E8F0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="16,14"/>
+        </Style>
+        <Style Selector="Border.card.clickable">
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Border.card.clickable:pointerover">
+            <Setter Property="BorderBrush" Value="#93C5FD"/>
+        </Style>
+        <Style Selector="Border.card.selected">
+            <Setter Property="BorderBrush" Value="#2563EB"/>
+            <Setter Property="BorderThickness" Value="2"/>
+            <Setter Property="Padding" Value="15,13"/>
+        </Style>
+        <Style Selector="Border.card.disabled">
+            <Setter Property="Opacity" Value="0.5"/>
+        </Style>
+        <Style Selector="Button">
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="16,9"/>
+            <Setter Property="FontSize" Value="14"/>
+        </Style>
+        <Style Selector="Button.primary">
+            <Setter Property="Background" Value="#2563EB"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#1D4ED8"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="Button.danger">
+            <Setter Property="Background" Value="#DC2626"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="Button.danger:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#B91C1C"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="Button.topbar">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#E2E8F0"/>
+            <Setter Property="Padding" Value="10,6"/>
+        </Style>
+        <Style Selector="Button.topbar:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#1E293B"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="TextBox">
+            <Setter Property="CornerRadius" Value="7"/>
+        </Style>
+    </Application.Styles>
+</Application>

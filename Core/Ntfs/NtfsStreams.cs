@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace DiskImager.Core.Ntfs;
 
 /// <summary>Windows' own decompressors (ntdll), available everywhere including the rescue environment.</summary>
-internal static class RtlCompression
+public static class RtlCompression
 {
     public const ushort Lznt1 = 2, Xpress = 3, XpressHuff = 4;
 
@@ -13,8 +13,23 @@ internal static class RtlCompression
     [DllImport("ntdll.dll")]
     private static extern unsafe int RtlDecompressBufferEx(ushort format, byte* output, uint outputSize, byte* input, uint inputSize, out uint finalSize, byte* workSpace);
 
+    /// <summary>Use the built-in .NET decompressors even on Windows (tests compare the two).</summary>
+    public static bool ForceManaged { get; set; }
+
     /// <summary>Decompresses <paramref name="input"/> into <paramref name="output"/>; returns the number of bytes produced.</summary>
-    public static unsafe int Decompress(ushort format, ReadOnlySpan<byte> input, Span<byte> output)
+    public static int Decompress(ushort format, ReadOnlySpan<byte> input, Span<byte> output)
+    {
+        if (ForceManaged || !OperatingSystem.IsWindows())
+            return format switch
+            {
+                Lznt1 => Decompressors.Lznt1(input, output),
+                XpressHuff => Decompressors.XpressHuffman(input, output),
+                _ => throw new NotSupportedException("Unsupported compression format."),
+            };
+        return Native(format, input, output);
+    }
+
+    private static unsafe int Native(ushort format, ReadOnlySpan<byte> input, Span<byte> output)
     {
         if (RtlGetCompressionWorkSpaceSize(format, out uint ws, out _) != 0) throw new InvalidDataException("Unsupported compression format.");
         var work = new byte[Math.Max(ws, 1)];

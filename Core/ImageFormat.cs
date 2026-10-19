@@ -90,6 +90,7 @@ public static class ImageFormat
     public static readonly byte[] HeaderMagic = Encoding.ASCII.GetBytes("DIMGHDR1");
     public static readonly byte[] TrailerMagic = Encoding.ASCII.GetBytes("DIMGIDX1");
     public const string Extension = ".dimg";
+    public const int DefaultBlockSize = 1 << 20;
 
     public static readonly JsonSerializerOptions Json = new()
     {
@@ -189,8 +190,8 @@ public sealed class ImageReader : IBlockSource
     private readonly IndexEntry[] _index;
     private readonly long[] _blocks;
     private readonly FileStream?[] _streams;
-    private byte[] _compBuf = new byte[LiveDiskSource.DefaultBlockSize + 4096];
-    private byte[] _plainBuf = new byte[LiveDiskSource.DefaultBlockSize + 4096];
+    private byte[] _compBuf = new byte[ImageFormat.DefaultBlockSize + 4096];
+    private byte[] _plainBuf = new byte[ImageFormat.DefaultBlockSize + 4096];
     private ImageKey? _key;
 
     public string FilePath { get; }
