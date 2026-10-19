@@ -1,0 +1,14 @@
+#!/bin/bash
+# Runs at sign-in: TechSource wallpaper on every screen, and desktop shortcuts marked as trusted
+# (XFCE otherwise asks before running a shortcut it hasn't seen).
+for p in $(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep -E 'last-image$'); do
+    xfconf-query -c xfce4-desktop -p "$p" -s /usr/share/backgrounds/techsource/wallpaper.png
+done
+for p in $(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep -E 'image-style$'); do
+    xfconf-query -c xfce4-desktop -p "$p" -s 5
+done
+for f in "$HOME"/Desktop/*.desktop; do
+    [ -f "$f" ] || continue
+    chmod +x "$f"
+    gio set -t string "$f" metadata::xfce-exe-checksum "$(sha256sum "$f" | cut -d' ' -f1)" 2>/dev/null || true
+done

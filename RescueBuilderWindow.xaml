@@ -7,7 +7,18 @@
     <StackPanel Margin="24,20,24,20">
         <TextBlock Text="Create a rescue USB" Style="{StaticResource PageTitle}" FontSize="20"/>
         <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap" Margin="0,2,0,14"
-                   Text="Start a PC from this USB stick to restore a backup when Windows won't start, or onto a brand-new drive. It's built from this PC's own Windows recovery system, so nothing needs downloading."/>
+                   Text="Start a PC from this USB stick to restore a backup when Windows won't start, or onto a brand-new drive."/>
+
+        <GroupBox Header="Rescue system">
+            <StackPanel>
+                <RadioButton x:Name="LinuxRadio" IsChecked="True" Click="Kind_Click"
+                             Content="TechSource Rescue: a full desktop with DiskImager, Firefox, LibreOffice and remote help"/>
+                <TextBlock x:Name="LinuxHint" Style="{StaticResource Hint}" Margin="26,2,0,8" TextWrapping="Wrap"
+                           Text="Downloaded from the latest DiskImager release (about 1.5 GB, once). Works on almost any PC. Use a 16 GB stick so files and settings can be kept in encrypted saved storage."/>
+                <RadioButton x:Name="WinPeRadio" Click="Kind_Click"
+                             Content="Windows recovery system: DiskImager only, built from this PC (nothing to download)"/>
+            </StackPanel>
+        </GroupBox>
 
         <GroupBox Header="Write to">
             <StackPanel>
@@ -24,7 +35,7 @@
             </StackPanel>
         </GroupBox>
 
-        <GroupBox Header="Options">
+        <GroupBox x:Name="OptionsGroup" Header="Options" Visibility="Collapsed">
             <StackPanel>
                 <CheckBox x:Name="DriversBox" IsChecked="True" Content="Include this PC's network and storage drivers"
                           ToolTip="So the rescue system can see this kind of PC's disks and reach the NAS. Make the stick on a PC similar to the ones you'll rescue."/>
@@ -35,7 +46,7 @@
 
         <StackPanel x:Name="ProgressPanel" Visibility="Collapsed" Margin="0,4,0,8">
             <TextBlock x:Name="StatusText" TextWrapping="Wrap"/>
-            <ProgressBar Height="8" Margin="0,8,0,0" IsIndeterminate="True"/>
+            <ProgressBar x:Name="Bar" Height="8" Margin="0,8,0,0" IsIndeterminate="True" Maximum="1"/>
         </StackPanel>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">

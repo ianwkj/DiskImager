@@ -1,0 +1,33 @@
+#!/bin/bash
+# Sets up encrypted saved storage on the rescue stick: Wi-Fi passwords, bookmarks, the Tailscale sign-in,
+# installed apps and files are kept between starts. The stick asks for its password each time it starts.
+TITLE="Saved storage"
+MEDIUM=$(findmnt -n -o SOURCE /run/live/medium)
+DEV=/dev/$(lsblk -n -o PKNAME "$MEDIUM" | head -1)
+if [ ! -b "$DEV" ]; then zenity --error --title "$TITLE" --text "Couldn't find the rescue stick."; exit 1; fi
+if lsblk -n -o FSTYPE "$DEV" | grep -q crypto_LUKS; then
+    zenity --info --title "$TITLE" --width 420 --text "Saved storage is already set up on this stick.\n\nIf you're not asked for its password at start-up, choose the normal start option in the boot menu."
+    exit 0
+fi
+FREE_MB=$(( ( $(blockdev --getsize64 "$DEV") - $(sfdisk -d "$DEV" | awk -F'[=,]' '/start=/{s=$2; z=$4; if (s+z>m) m=s+z} END {print m*512}') ) / 1048576 ))
+if [ "$FREE_MB" -lt 1024 ]; then
+    zenity --error --title "$TITLE" --width 420 --text "There's not enough free space on this stick (${FREE_MB} MB). Use a 16 GB or bigger stick."
+    exit 1
+fi
+zenity --question --title "$TITLE" --width 460 --ok-label "Set up" \
+    --text "Set up encrypted saved storage on this stick ($((FREE_MB / 1024)) GB)?\n\nWi-Fi passwords, bookmarks, the Tailscale sign-in, installed apps and files will be kept. You'll type its password each time the stick starts. Nobody can read it without the password." || exit 0
+while true; do
+    P1=$(zenity --password --title "Choose a password for saved storage") || exit 0
+    P2=$(zenity --password --title "Type the password again") || exit 0
+    if [ "$P1" != "$P2" ]; then zenity --error --text "The passwords don't match."; continue; fi
+    if [ ${#P1} -lt 8 ]; then zenity --error --text "Use at least 8 characters."; continue; fi
+    break
+done
+if printf '%s' "$P1" | pkexec /usr/local/sbin/ts-make-storage "$DEV" 2>&1 | zenity --progress --pulsate --auto-close --no-cancel --title "$TITLE" --text "Setting up saved storage…"; then
+    if lsblk -n -o FSTYPE "$DEV" | grep -q crypto_LUKS; then
+        zenity --info --title "$TITLE" --width 420 --text "Saved storage is ready.\n\nRestart the stick and type the password when asked: from then on your settings and files are kept."
+        exit 0
+    fi
+fi
+zenity --error --title "$TITLE" --text "Saved storage couldn't be set up."
+exit 1

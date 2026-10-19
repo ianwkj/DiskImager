@@ -1,0 +1,35 @@
+#!/bin/bash
+# Connect the stick to your Tailscale network: sign in with your account in Firefox (nothing is stored
+# on the stick unless saved storage is set up, which keeps the sign-in encrypted).
+TITLE="Tailscale"
+if tailscale status >/dev/null 2>&1; then
+    ME=$(tailscale ip -4 2>/dev/null | head -1)
+    if zenity --question --title "$TITLE" --width 420 --ok-label "Disconnect" --cancel-label "Close" \
+        --text "Connected to your Tailscale network as $(hostname) ($ME).\n\nOther devices on your network can be reached by their Tailscale name or address."; then
+        pkexec tailscale down && zenity --info --title "$TITLE" --text "Disconnected from Tailscale."
+    fi
+    exit 0
+fi
+LOG=$(mktemp)
+pkexec tailscale up --operator="$USER" --accept-routes >"$LOG" 2>&1 &
+UP=$!
+URL=""
+for _ in $(seq 1 30); do
+    URL=$(grep -o 'https://login.tailscale.com/[^ ]*' "$LOG" | head -1)
+    [ -n "$URL" ] && break
+    kill -0 $UP 2>/dev/null || break
+    sleep 1
+done
+if [ -n "$URL" ]; then
+    firefox-esr "$URL" >/dev/null 2>&1 &
+    zenity --info --title "$TITLE" --width 420 --text "Sign in to Tailscale in the Firefox window that just opened.\n\nThis window closes by itself once you're connected." &
+    INFO=$!
+    wait $UP
+    kill $INFO 2>/dev/null
+fi
+if tailscale status >/dev/null 2>&1; then
+    zenity --info --title "$TITLE" --text "Connected to your Tailscale network ($(tailscale ip -4 | head -1))."
+else
+    zenity --error --title "$TITLE" --width 420 --text "Couldn't connect to Tailscale.\n\n$(tail -3 "$LOG")"
+fi
+rm -f "$LOG"

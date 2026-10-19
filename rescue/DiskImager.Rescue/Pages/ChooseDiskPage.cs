@@ -29,7 +29,7 @@ public sealed class ChooseDiskPage : UserControl
 
     // Hooks for the demo self-test.
     private readonly TaskCompletionSource _loaded = new();
-    internal Task Loaded => _loaded.Task;
+    internal Task LoadTask => _loaded.Task;
     internal void PickLast()
     {
         if (_list.Children.OfType<Border>().LastOrDefault(b => b.Tag is DiskInfo d && !d.IsSystem)?.Tag is DiskInfo last) Pick(last);

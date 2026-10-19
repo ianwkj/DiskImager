@@ -38,13 +38,13 @@ public static class DemoAutoTest
             w.State.BrowseMode = false;
             var find = new FindBackupPage(w);
             w.Show(find, 1);
-            await find.Loaded;
+            await find.LoadTask;
             await Shot("2-find-backup");
             find.PickNewest(password);
             await Shot("3-backup-picked");
             await find.NextAsync();
             var choose = Page<ChooseDiskPage>();
-            await choose.Loaded;
+            await choose.LoadTask;
             choose.PickLast();
             await Shot("4-choose-disk");
             choose.Next();
@@ -66,7 +66,7 @@ public static class DemoAutoTest
             w.State.BrowseMode = true;
             find = new FindBackupPage(w);
             w.Show(find, 1);
-            await find.Loaded;
+            await find.LoadTask;
             find.PickNewest(password);
             await find.NextAsync();
             var browse = Page<BrowsePage>();

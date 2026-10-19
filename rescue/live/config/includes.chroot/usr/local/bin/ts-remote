@@ -1,0 +1,24 @@
+#!/bin/bash
+# TeamViewer and AnyDesk can't be shipped inside the stick (their licences don't allow it), so the first
+# click downloads the official version and installs it. With saved storage set up it stays installed.
+APP="$1"
+case "$APP" in
+    teamviewer) NAME="TeamViewer"; BIN=teamviewer ;;
+    anydesk) NAME="AnyDesk"; BIN=anydesk ;;
+    *) echo "usage: ts-remote teamviewer|anydesk"; exit 2 ;;
+esac
+if ! command -v "$BIN" >/dev/null; then
+    zenity --question --title "$NAME" --width 440 --ok-label "Download and install" \
+        --text "$NAME isn't on the stick yet. Download it from the official $NAME website and install it now?\n\nIt takes about a minute. Use your company's $NAME licence: the free version is for personal use only." || exit 0
+    if [ "$APP" = teamviewer ]; then
+        STEPS='curl -fsSL -o /tmp/teamviewer.deb https://download.teamviewer.com/download/linux/teamviewer_amd64.deb && apt-get update && apt-get install -y /tmp/teamviewer.deb'
+    else
+        STEPS='curl -fsSL https://keys.anydesk.com/repos/DEB-GPG-KEY | gpg --dearmor -o /usr/share/keyrings/anydesk.gpg && echo "deb [signed-by=/usr/share/keyrings/anydesk.gpg] http://deb.anydesk.com/ all main" > /etc/apt/sources.list.d/anydesk.list && apt-get update && apt-get install -y anydesk'
+    fi
+    if ! pkexec bash -c "$STEPS" 2>&1 | zenity --progress --pulsate --auto-close --no-cancel --title "$NAME" --text "Downloading and installing $NAME…"; then :; fi
+    if ! command -v "$BIN" >/dev/null; then
+        zenity --error --title "$NAME" --text "$NAME couldn't be installed. Check the internet connection and try again."
+        exit 1
+    fi
+fi
+exec "$BIN"

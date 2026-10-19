@@ -11,7 +11,7 @@ mkdir -p "$OUT"
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y --no-install-recommends live-build ca-certificates curl gnupg imagemagick fonts-inter xorriso \
+apt-get install -y --no-install-recommends live-build ca-certificates curl gnupg imagemagick fonts-dejavu-core xorriso \
     squashfs-tools dosfstools mtools grub-efi-amd64-bin grub-pc-bin shim-signed grub-efi-amd64-signed syslinux isolinux syslinux-common
 
 test -x "$HERE/config/includes.chroot/opt/diskimager/diskimager-rescue" || { echo "The rescue app isn't in config/includes.chroot/opt/diskimager"; exit 1; }
@@ -24,7 +24,7 @@ cp "$HERE/../../logo.png" "$HERE/config/includes.chroot/usr/share/pixmaps/diskim
 IM=convert; command -v magick >/dev/null && IM=magick
 $IM -size 1920x1080 radial-gradient:'#1E40AF'-'#0B1B3A' \
     \( "$HERE/../../logo.png" -resize 120x120 \) -gravity southeast -geometry +60+110 -composite \
-    -font Inter -fill '#BFDBFE' -pointsize 30 -gravity southeast -annotate +60+60 'TechSource Rescue' \
+    -font DejaVu-Sans -fill '#BFDBFE' -pointsize 30 -gravity southeast -annotate +60+60 'TechSource Rescue' \
     "$ART/wallpaper.png" || $IM -size 1920x1080 radial-gradient:'#1E40AF'-'#0B1B3A' "$ART/wallpaper.png"
 
 WORK=/tmp/tsr-build

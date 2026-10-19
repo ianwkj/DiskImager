@@ -15,7 +15,7 @@ public partial class RescueBuilderWindow : Window
     {
         InitializeComponent();
         _log = log;
-        IsoBox.Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "DiskImager-Rescue.iso");
+        IsoBox.Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "TechSource-Rescue.iso");
         Loaded += async (_, _) => await LoadUsb();
         Closing += (_, e) => { if (_busy) e.Cancel = true; };
     }
@@ -41,6 +41,13 @@ public partial class RescueBuilderWindow : Window
         CreateButton.Style = (Style)FindResource(iso ? "Primary" : "Danger");
     }
 
+    private void Kind_Click(object sender, RoutedEventArgs e)
+    {
+        bool linux = LinuxRadio.IsChecked == true;
+        OptionsGroup.Visibility = linux ? Visibility.Collapsed : Visibility.Visible;
+        IsoBox.Text = Path.Combine(Path.GetDirectoryName(IsoBox.Text) ?? "", linux ? "TechSource-Rescue.iso" : "DiskImager-Rescue.iso");
+    }
+
     private void BrowseIso_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new SaveFileDialog { Title = "Save the rescue ISO as", Filter = "ISO image (*.iso)|*.iso", FileName = Path.GetFileName(IsoBox.Text) };
@@ -64,11 +71,29 @@ public partial class RescueBuilderWindow : Window
         _busy = true;
         CreateButton.IsEnabled = CloseButton.IsEnabled = false;
         ProgressPanel.Visibility = Visibility.Visible;
-        var progress = new Progress<ProgressInfo>(p => StatusText.Text = p.Stage);
+        var progress = new Progress<ProgressInfo>(p =>
+        {
+            StatusText.Text = p.Total > 0 && p.Done > 0
+                ? $"{p.Stage}: {Util.FormatBytes(p.Done)} of {Util.FormatBytes(p.Total)}" + (p.BytesPerSecond > 0 ? $" ({Util.FormatBytes((long)p.BytesPerSecond)}/s)" : "")
+                : p.Stage;
+            Bar.IsIndeterminate = p.Total <= 0;
+            if (p.Total > 0) Bar.Value = Math.Min(1, (double)p.Done / p.Total);
+        });
         bool drivers = DriversBox.IsChecked == true;
+        bool linux = LinuxRadio.IsChecked == true;
         try
         {
-            await Task.Run(() => RescueMedia.Build(new RescueMedia.Options { UsbDisk = usb, IsoPath = isoPath, AddDrivers = drivers }, progress, CancellationToken.None, _log));
+            if (linux)
+            {
+                StatusText.Text = "Looking for the latest rescue system…";
+                var release = await RescueImage.FindLatest()
+                    ?? throw new InvalidOperationException("No TechSource Rescue image has been published yet. Choose the Windows recovery system instead.");
+                string downloaded = await Task.Run(() => RescueImage.Download(release, progress, _log));
+                if (usb != null) await Task.Run(() => RescueImage.WriteToUsb(downloaded, usb, progress, CancellationToken.None, _log));
+                else await Task.Run(() => File.Copy(downloaded, isoPath!, overwrite: true));
+            }
+            else
+                await Task.Run(() => RescueMedia.Build(new RescueMedia.Options { UsbDisk = usb, IsoPath = isoPath, AddDrivers = drivers }, progress, CancellationToken.None, _log));
             StatusText.Text = "Done.";
             MessageBox.Show(this, iso
                     ? $"The rescue ISO is ready:\n{isoPath}\n\nBoot a server or virtual machine from it, or burn it to a DVD."

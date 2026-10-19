@@ -15,5 +15,7 @@ TestResults/
 
 # Linux rescue image build output
 rescue/live/build/
+!rescue/live/config/includes.chroot/usr/local/bin/
+rescue/live/config/includes.chroot/opt/
 *.iso
 

@@ -54,7 +54,7 @@ public sealed class FindBackupPage : UserControl
 
     // Hooks for the demo self-test.
     private readonly TaskCompletionSource _loaded = new();
-    internal Task Loaded => _loaded.Task;
+    internal Task LoadTask => _loaded.Task;
     internal void PickNewest(string password)
     {
         var first = _images.FirstOrDefault();

@@ -38,6 +38,7 @@ jobs:
         run: |
           mkdir -p out
           docker run --rm --privileged -e RESCUE_VERSION=${{ steps.v.outputs.version }} -v "$PWD":/w -w /w debian:trixie bash rescue/live/build.sh /w/out
+          cd out && for f in *.iso; do sha256sum "$f" > "$f.sha256"; done && ls -la
 
       - name: Keep the image as a build artifact
         uses: actions/upload-artifact@v4
@@ -53,4 +54,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           for i in $(seq 1 30); do gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 && break; sleep 20; done
-          gh release upload "$GITHUB_REF_NAME" out/*.iso --clobber
+          gh release upload "$GITHUB_REF_NAME" out/*.iso out/*.iso.sha256 --clobber
