@@ -124,6 +124,8 @@
                                     Click="Restore_Click" Margin="0" IsEnabled="False"
                                     ToolTip="Select a backup first" ToolTipService.ShowOnDisabled="True"/>
                             <StackPanel Orientation="Horizontal">
+                                <Button x:Name="BrowseFilesButton" Content="Browse files…" Tag="&#xE8B7;" Click="BrowseFiles_Click" IsEnabled="False"
+                                        ToolTip="Select a backup first" ToolTipService.ShowOnDisabled="True"/>
                                 <Button x:Name="VerifyButton" Content="Verify image" Tag="&#xE73E;" Click="Verify_Click" IsEnabled="False"
                                         ToolTip="Select a backup first" ToolTipService.ShowOnDisabled="True"/>
                             </StackPanel>
@@ -253,6 +255,43 @@
                                 </StackPanel>
                             </StackPanel>
                         </GroupBox>
+
+                        <GroupBox Header="This PC and the weekly report">
+                            <Grid Margin="0,4,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="130"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="Client" VerticalAlignment="Center"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,3">
+                                    <TextBox x:Name="ClientBox" Width="280"/>
+                                    <TextBlock Style="{StaticResource Hint}" Text="Starts every email subject, e.g. [ACME Pte Ltd]" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                </StackPanel>
+                                <TextBlock Grid.Row="1" Text="Location" VerticalAlignment="Center"/>
+                                <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,3">
+                                    <TextBox x:Name="LocationBox2" Width="280"/>
+                                    <TextBlock Style="{StaticResource Hint}" Text="e.g. Front desk. The signed-in user is added automatically." VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                </StackPanel>
+                                <CheckBox x:Name="ReportBox" Grid.Row="2" Grid.Column="1" Margin="0,12,0,0" Click="ReportBox_Click"
+                                          Content="Send this office's weekly backup report from this PC"/>
+                                <StackPanel x:Name="ReportWhenPanel" Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Margin="26,8,0,0">
+                                    <TextBlock Text="Every" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <ComboBox x:Name="ReportDayBox" Width="130"/>
+                                    <TextBlock Text="at" VerticalAlignment="Center" Margin="10,0,8,0"/>
+                                    <TextBox x:Name="ReportTimeBox" Width="64" HorizontalContentAlignment="Center"/>
+                                </StackPanel>
+                                <TextBlock Grid.Row="4" Grid.Column="1" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="26,6,0,0"
+                                           Text="Every PC leaves a status note next to its backups. This PC reads them all and emails one report per client, including PCs that stopped backing up or reporting. Choose one PC per office, ideally one that's always on."/>
+                            </Grid>
+                        </GroupBox>
+                        <StackPanel Orientation="Horizontal" Margin="0,-6,0,18">
+                            <Button Content="Save" Tag="&#xE74E;" Style="{StaticResource Primary}" Click="SaveReport_Click"/>
+                            <Button x:Name="SendReportButton" Content="Send report now" Tag="&#xE715;" Click="SendReport_Click"/>
+                            <TextBlock x:Name="ReportStatus" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" MaxWidth="460"/>
+                        </StackPanel>
 
                         <GroupBox Header="Updates">
                             <StackPanel Margin="0,4,0,0">

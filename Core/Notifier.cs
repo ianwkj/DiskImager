@@ -37,6 +37,7 @@ public sealed class AppSettings
 {
     public EmailSettings Email { get; set; } = new();
     public UpdateSettings Updates { get; set; } = new();
+    public ReportSettings Report { get; set; } = new();
 
     private static string FilePath => Path.Combine(JobStore.DataFolder, "settings.json");
 
@@ -183,7 +184,9 @@ public sealed class EmailMessage
 public static class Notifier
 {
     /// <summary>Sends one email (HTML with a plain-text alternative); throws with the server's message if it fails.</summary>
-    public static void Send(EmailSettings s, EmailMessage m)
+    public static void Send(EmailSettings s, EmailMessage m) => Send(s, m.Subject, m.Text, m.Html);
+
+    public static void Send(EmailSettings s, string subject, string text, string html)
     {
         if (string.IsNullOrWhiteSpace(s.Host)) throw new InvalidOperationException("No SMTP server is set.");
         var to = s.To.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -192,8 +195,8 @@ public static class Notifier
         var msg = new MimeMessage();
         msg.From.Add(MailboxAddress.Parse(s.From.Length > 0 ? s.From : s.User ?? ""));
         foreach (var addr in to) msg.To.Add(MailboxAddress.Parse(addr));
-        msg.Subject = m.Subject;
-        msg.Body = new BodyBuilder { TextBody = m.Text, HtmlBody = m.Html }.ToMessageBody();
+        msg.Subject = subject;
+        msg.Body = new BodyBuilder { TextBody = text, HtmlBody = html }.ToMessageBody();
 
         using var client = new SmtpClient { Timeout = 30000 };
         var security = s.Security switch
@@ -214,7 +217,7 @@ public static class Notifier
     {
         var m = new EmailMessage
         {
-            Subject = $"[DiskImager] Test email from {Environment.MachineName}",
+            Subject = $"{WeeklyReport.Prefix(AppSettings.Load().Report)} Test email from {Environment.MachineName}",
             Tone = EmailTone.Info,
             Heading = "Test email",
             Intro = "If you can read this, DiskImager can reach you. Backup results and missed-backup alerts will arrive like this.",
@@ -261,11 +264,13 @@ public static class Notifier
     {
         bool ok = error == null;
         string kind = result != null ? (result.WasFull ? "Full" : "Incremental") : (incremental ? "Incremental" : "Full");
+        var labels = AppSettings.Load().Report;
+        string prefix = WeeklyReport.Prefix(labels);
         var m = new EmailMessage
         {
             Subject = ok
-                ? $"[DiskImager] ✅ Backup succeeded: {job.Name} on {Environment.MachineName}"
-                : $"[DiskImager] ❌ BACKUP FAILED: {job.Name} on {Environment.MachineName}",
+                ? $"{prefix} ✅ Backup succeeded: {job.Name} on {Environment.MachineName}"
+                : $"{prefix} ❌ BACKUP FAILED: {job.Name} on {Environment.MachineName}",
             Tone = ok ? EmailTone.Success : EmailTone.Failure,
             Heading = ok ? "Backup completed" : "Backup failed",
             Intro = ok
@@ -273,7 +278,8 @@ public static class Notifier
                 : $"The {kind.ToLowerInvariant()} backup \"{job.Name}\" did not complete. Your previous backups are not affected.",
         };
         m.Rows.Add(("Job", job.Name));
-        m.Rows.Add(("Computer", Environment.MachineName));
+        if (labels.ClientName.Length > 0) m.Rows.Add(("Client", labels.ClientName));
+        m.Rows.Add(("Computer", labels.Location.Length > 0 ? $"{Environment.MachineName} ({labels.Location})" : Environment.MachineName));
         m.Rows.Add(("Backup type", kind));
         m.Rows.Add(("Source disk", job.SourceDiskDescription));
         m.Rows.Add(("Destination", job.Destination));
@@ -300,15 +306,17 @@ public static class Notifier
 
     public static EmailMessage ComposeMissed(BackupJob job, DateTime scheduledLocal, int missedCount)
     {
+        var labels = AppSettings.Load().Report;
         var m = new EmailMessage
         {
-            Subject = $"[DiskImager] ⚠️ Backup missed: {job.Name} on {Environment.MachineName}",
+            Subject = $"{WeeklyReport.Prefix(labels)} ⚠️ Backup missed: {job.Name} on {Environment.MachineName}",
             Tone = EmailTone.Warning,
             Heading = "Backup missed",
             Intro = $"The scheduled backup \"{job.Name}\" did not run on {scheduledLocal:dddd d MMMM} at {scheduledLocal:HH:mm}.",
         };
         m.Rows.Add(("Job", job.Name));
-        m.Rows.Add(("Computer", Environment.MachineName));
+        if (labels.ClientName.Length > 0) m.Rows.Add(("Client", labels.ClientName));
+        m.Rows.Add(("Computer", labels.Location.Length > 0 ? $"{Environment.MachineName} ({labels.Location})" : Environment.MachineName));
         m.Rows.Add(("Was due", scheduledLocal.ToString("yyyy-MM-dd HH:mm")));
         if (missedCount > 1) m.Rows.Add(("Runs missed", $"{missedCount} in a row"));
         m.Rows.Add(("Last successful backup", job.LastSuccessUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "None yet"));

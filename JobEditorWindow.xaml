@@ -51,9 +51,12 @@
                         <ComboBoxItem>None</ComboBoxItem>
                     </ComboBox>
 
-                    <CheckBox x:Name="VerifyBox" Grid.Row="6" Grid.Column="1" Margin="0,10,0,2"
-                              Content="Verify image when complete"
-                              ToolTip="Re-reads the new backup and checks every block. For incrementals only what that run added is checked, so daily runs stay quick."/>
+                    <StackPanel Grid.Row="6" Grid.Column="1" Margin="0,10,0,2">
+                        <CheckBox x:Name="VerifyBox" Content="Verify image when complete"
+                                  ToolTip="Re-reads the new backup and checks every block. For incrementals only what that run added is checked, so daily runs stay quick."/>
+                        <CheckBox x:Name="TrackBox" Content="Faster incrementals: only read what changed" Margin="0,6,0,0"
+                                  ToolTip="Uses Windows' NTFS change journal to skip parts of the disk that haven't changed since the last backup. A sample of the skipped parts is checked every time; if anything is uncertain, the whole disk is read as usual."/>
+                    </StackPanel>
                 </Grid>
             </GroupBox>
 

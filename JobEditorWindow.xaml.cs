@@ -42,6 +42,7 @@ public partial class JobEditorWindow : Window
         AfterBox.SelectedIndex = Job.After is PostAction.Shutdown or PostAction.Restart ? (int)Job.After : 0;
         WakeBox.IsChecked = Job.WakeToRun;
         VerifyBox.IsChecked = Job.VerifyAfter;
+        TrackBox.IsChecked = Job.ChangeTracking;
         NotifyBox.SelectedIndex = (int)Job.Notify;
         NotifyHint.Text = AppSettings.Load().Email.Enabled ? "" : "Set up email on the Settings tab first.";
         ExcludeBox.Text = string.Join(Environment.NewLine, Job.ExcludeFolders);
@@ -211,6 +212,7 @@ public partial class JobEditorWindow : Window
             Job.After = (PostAction)Math.Max(0, AfterBox.SelectedIndex);
             Job.WakeToRun = WakeBox.IsChecked == true;
             Job.VerifyAfter = VerifyBox.IsChecked == true;
+            Job.ChangeTracking = TrackBox.IsChecked == true;
             Job.ExcludeFolders = exclude;
             Job.EncryptionPasswordProtected = encryption;
             if (!_oneOff) Job.Notify = (NotifyWhen)Math.Max(0, NotifyBox.SelectedIndex);

@@ -23,6 +23,8 @@ public sealed class BackupRequest
     public IReadOnlyList<string> ExcludeFolders { get; init; } = Array.Empty<string>();
     /// <summary>Encrypt the image with this password (null or empty = not encrypted).</summary>
     public string? EncryptionPassword { get; init; }
+    /// <summary>Use change tracking (faster incrementals); its state is kept per job under this ID.</summary>
+    public Guid? TrackingJobId { get; init; }
 }
 
 public sealed class BackupResult
@@ -53,6 +55,8 @@ public static class BackupEngine
         public IndexEntry?[] Ref = new IndexEntry?[Batch];
         public byte[]?[] Out = new byte[]?[Batch];
         public BlockFlags[] Flags = new BlockFlags[Batch];
+        /// <summary>Unchanged according to change tracking: not read, taken from the previous image.</summary>
+        public bool[] Skipped = new bool[Batch];
     }
 
     public static BackupResult Run(BackupRequest req, IProgress<ProgressInfo>? progress, CancellationToken ct, Logger log)
@@ -111,7 +115,7 @@ public static class BackupEngine
         bool full = parent == null;
 
         log.Info($"Starting {(full ? "FULL" : "INCREMENTAL")} backup of {req.Disk.Title} to {req.DestinationFolder}");
-        using var source = LiveDiskSource.Open(req.Disk, req.UseVss, log, ct, req.ExcludeFolders);
+        using var source = LiveDiskSource.Open(req.Disk, req.UseVss, log, ct, req.ExcludeFolders, track: req.TrackingJobId != null);
         string? spaceWarning = CheckFreeSpace(req, full, (long)source.Blocks.Count * source.BlockSize, chain, log);
 
         string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
@@ -148,8 +152,11 @@ public static class BackupEngine
         using var writer = new ImageWriter(path, header);
         var level = req.Compression == CompressionChoice.Better ? CompressionLevel.Optimal : CompressionLevel.Fastest;
         var blocks = source.Blocks;
+        var skip = parentMap != null && req.TrackingJobId is Guid jid
+            ? UnchangedBlocks(source, parent!, parentMap, jid, key, log)
+            : new HashSet<long>();
         var tracker = new ProgressTracker(progress, full ? "Creating full image" : "Creating incremental image", (long)blocks.Count * source.BlockSize);
-        long bytesRead = 0, changed = 0;
+        long bytesRead = 0, changed = 0, notRead = 0;
 
         using var readerCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         using var queue = new BlockingCollection<BatchData>(boundedCapacity: 3);
@@ -164,6 +171,12 @@ public static class BackupEngine
                     for (int k = 0; k < b.Count; k++)
                     {
                         b.Index[k] = blocks[i + k];
+                        if (skip.Contains(b.Index[k]))
+                        {
+                            b.Skipped[k] = true;
+                            b.Length[k] = (int)Math.Min(source.BlockSize, source.DiskSize - b.Index[k] * source.BlockSize);
+                            continue;
+                        }
                         b.Data[k] = ArrayPool<byte>.Shared.Rent(source.BlockSize);
                         source.ReadBlock(b.Index[k], b.Data[k], out b.Length[k]);
                     }
@@ -180,7 +193,11 @@ public static class BackupEngine
         {
             foreach (var b in queue.GetConsumingEnumerable(ct))
             {
-                Parallel.For(0, b.Count, k => Process(b, k, parentMap, req.Compression, level, key, header.ChainId));
+                Parallel.For(0, b.Count, k =>
+                {
+                    if (b.Skipped[k]) b.Ref[k] = parentMap![b.Index[k]];
+                    else Process(b, k, parentMap, req.Compression, level, key, header.ChainId);
+                });
                 for (int k = 0; k < b.Count; k++)
                 {
                     if (b.Ref[k] != null) writer.AddReference(b.Ref[k]!);
@@ -190,7 +207,8 @@ public static class BackupEngine
                         writer.AddBlock(b.Index[k], b.Hash[k], b.Flags[k], b.Out[k], b.Out[k]?.Length ?? 0);
                     }
                     bytesRead += b.Length[k];
-                    ArrayPool<byte>.Shared.Return(b.Data[k]);
+                    if (b.Skipped[k]) notRead++;
+                    else ArrayPool<byte>.Shared.Return(b.Data[k]);
                 }
                 tracker.Report(bytesRead);
             }
@@ -207,7 +225,23 @@ public static class BackupEngine
         writer.Commit();
         tracker.Report(bytesRead, force: true);
         long written = new FileInfo(path).Length;
-        log.Info($"Image saved: {path} ({Util.FormatBytes(written)}; {changed:N0} of {blocks.Count:N0} blocks {(full ? "stored" : "changed")}; took {Util.FormatDuration(sw.Elapsed)}).");
+        log.Info($"Image saved: {path} ({Util.FormatBytes(written)}; {changed:N0} of {blocks.Count:N0} blocks {(full ? "stored" : "changed")}" +
+                 (notRead > 0 ? $"; {notRead:N0} unchanged blocks reused without reading" : "") + $"; took {Util.FormatDuration(sw.Elapsed)}).");
+
+        // Remember this backup's block ownership, so the next incremental can skip what didn't change.
+        if (req.TrackingJobId is Guid trackId)
+            foreach (var (p, scan) in source.TrackingScans)
+            {
+                try
+                {
+                    Ntfs.ChangeTracker.Save(Ntfs.ChangeTracker.StatePath(trackId, p.Offset), new Ntfs.VolumeTrackingState
+                    {
+                        ImageId = header.ImageId, PartitionOffset = p.Offset, BlockSize = source.BlockSize, ClusterSize = scan.ClusterSize,
+                        JournalId = scan.JournalId, NextUsn = scan.NextUsn, Owners = scan.Owners,
+                    });
+                }
+                catch (Exception ex) { log.Warn($"Couldn't save the change-tracking record: {ex.Message}"); }
+            }
 
         if (!req.DeferRetention)
             ImageCatalog.ApplyRetention(req.DestinationFolder, req.JobName, req.KeepFullSets, header.ChainId, log);
@@ -217,6 +251,60 @@ public static class BackupEngine
             ImagePath = path, ChainId = header.ChainId, WasFull = full, BytesRead = bytesRead, BytesWritten = written,
             Duration = sw.Elapsed, SpaceWarning = spaceWarning,
         };
+    }
+
+    /// <summary>
+    /// Blocks change tracking says are unchanged since the parent image (taken from it without reading the disk).
+    /// A random sample of them is read anyway and must match the parent exactly, or nothing is skipped.
+    /// </summary>
+    private static HashSet<long> UnchangedBlocks(LiveDiskSource source, ImageReader parent, Dictionary<long, IndexEntry> parentMap,
+        Guid jobId, ImageKey? key, Logger log)
+    {
+        var skip = new HashSet<long>();
+        int bs = source.BlockSize;
+        foreach (var (p, scan) in source.TrackingScans)
+        {
+            string name = p.Volume?.DriveLetter ?? $"Partition {p.Number}";
+            var state = Ntfs.ChangeTracker.Load(Ntfs.ChangeTracker.StatePath(jobId, p.Offset));
+            if (state == null || state.ImageId != parent.Header.ImageId)
+            {
+                log.Info($"{name}: no change-tracking record for the previous backup; reading everything this time.");
+                continue;
+            }
+            var changedBlocks = Ntfs.ChangeTracker.ChangedBlocks(scan, state, bs, scan.ClusterSize, out string why);
+            if (changedBlocks == null)
+            {
+                log.Info($"{name}: {why}; reading everything this time.");
+                continue;
+            }
+            long baseBlock = p.Offset / bs;
+            int reused = 0;
+            for (long r = 0; r < scan.Owners.Length; r++)
+            {
+                long abs = baseBlock + r;
+                if (changedBlocks.Contains(r) || (abs + 1) * bs > p.End || !parentMap.ContainsKey(abs)) continue;
+                skip.Add(abs);
+                reused++;
+            }
+            log.Info($"{name}: change tracking: {changedBlocks.Count:N0} block(s) may have changed; {reused:N0} unchanged block(s) won't be read.");
+        }
+        if (skip.Count == 0) return skip;
+
+        // Safety check: read a sample of the "unchanged" blocks and compare them with the previous image.
+        var sample = skip.OrderBy(_ => Random.Shared.Next()).Take(Math.Min(skip.Count, Math.Max(24, skip.Count / 200))).ToList();
+        var buf = new byte[bs];
+        foreach (var b in sample)
+        {
+            source.ReadBlock(b, buf, out int len);
+            var hash = key?.Hash(buf, len) ?? ImageFormat.Hash(buf, len);
+            if (!hash.AsSpan().SequenceEqual(parentMap[b].Hash))
+            {
+                log.Warn($"Change tracking check: block {b} changed without being reported. Reading everything this time to be safe.");
+                return new HashSet<long>();
+            }
+        }
+        log.Info($"Change tracking check passed ({sample.Count} sampled blocks matched the previous backup).");
+        return skip;
     }
 
     /// <summary>Free bytes at a folder (local or \\server\share), or -1 if unknown. Replaceable for tests.</summary>

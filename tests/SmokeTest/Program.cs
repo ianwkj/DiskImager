@@ -11,7 +11,11 @@ if (args.Length >= 4 && args[0] == "--restore") return UiTest.RestoreTest(args[1
 if (args.Length >= 4 && args[0] == "--update") return UpdateUiTest.Run(args[1], args[2], args[3]);
 
 string work = args.Length > 0 ? args[0] : Path.Combine(Path.GetTempPath(), "diskimager-smoke");
-if (Directory.Exists(work)) Directory.Delete(work, true);
+if (Directory.Exists(work))
+{
+    foreach (var f in Directory.EnumerateFiles(work, "*", SearchOption.AllDirectories)) File.SetAttributes(f, FileAttributes.Normal);
+    Directory.Delete(work, true);
+}
 Directory.CreateDirectory(work);
 var log = new Logger();
 log.LineWritten += l => Console.WriteLine("    " + l);
@@ -734,6 +738,55 @@ Check(JobStore.Unprotect(JobStore.Protect("s3cret!")) == "s3cret!", "NAS passwor
         Check(r.Verify(null, CancellationToken.None, log) > 0, "encryption: a single changed byte is detected");
     }
 }
+
+// ---- Weekly report: schedule gaps, PC health, grouping by client, the email itself.
+{
+    Check(WeeklyReport.StatusFolder(@"\\NAS\Backups\PC1") == @"\\NAS\Backups\_DiskImagerStatus"
+          && WeeklyReport.StatusFolder(@"E:\Backups\Office\PC2") == @"E:\_DiskImagerStatus", "report: status notes go to the share or drive root");
+    Check(WeeklyReport.Interval(new Schedule { Kind = ScheduleKind.Daily }) == 24
+          && WeeklyReport.Interval(new Schedule { Kind = ScheduleKind.Weekly, Days = { DayOfWeek.Friday } }) == 168
+          && WeeklyReport.Interval(new Schedule { Kind = ScheduleKind.Weekly, Days = { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday } }) == 72,
+        "report: expected gaps (daily 24 h, weekly 7 days, weekdays 3 days over the weekend)");
+
+    var now = new DateTime(2026, 10, 19, 1, 0, 0, DateTimeKind.Utc);
+    string folder = Path.Combine(work, "report", WeeklyReport.FolderName);
+    Directory.CreateDirectory(folder);
+    PcStatus Pc(string name, string client, string location, DateTime noteAt, DateTime? lastOk, string? result, double every = 24) => new()
+    {
+        MachineId = Guid.NewGuid(), ComputerName = name, ClientName = client, Location = location, LastUser = "john.tan", UpdatedUtc = noteAt,
+        Jobs = { new JobStatus { Name = "Nightly", LastSuccessUtc = lastOk, LastRunUtc = noteAt, LastResult = result, ExpectedEveryHours = every, LastImageBytes = 60L << 30 } },
+    };
+    var pcs = new[]
+    {
+        Pc("ACCOUNTS-01", "ACME Pte Ltd", "Accounts", now.AddHours(-2), now.AddHours(-2), "OK – Incremental, 3 GB"),
+        Pc("MANAGER-PC", "ACME Pte Ltd", "", now.AddHours(-20), now.AddHours(-20), "OK – Full, 60 GB"),
+        Pc("RECEPTION-PC", "ACME Pte Ltd", "Front desk", now.AddDays(-1), now.AddDays(-9), "OK – Full, 50 GB"),
+        Pc("FINANCE-02", "ACME Pte Ltd", "", now.AddHours(-3), now.AddDays(-1), "FAILED – Could not connect to \\\\NAS\\Backups"),
+        Pc("DESIGN-03", "ACME Pte Ltd", "", now.AddDays(-6), now.AddDays(-6), "OK – Incremental, 1 GB"),
+        Pc("SERVER-01", "Kim and Partners", "Server room", now.AddHours(-1), now.AddHours(-1), "OK – Incremental, 9 GB"),
+    };
+    foreach (var p in pcs) File.WriteAllText(Path.Combine(folder, p.MachineId + ".json"), System.Text.Json.JsonSerializer.Serialize(p, JobStore.Json));
+    File.WriteAllText(Path.Combine(folder, "garbage.json"), "{ not json");
+
+    Check(WeeklyReport.Health(pcs[0], now) == PcHealth.Ok && WeeklyReport.Health(pcs[2], now) == PcHealth.Late
+          && WeeklyReport.Health(pcs[3], now) == PcHealth.Failing && WeeklyReport.Health(pcs[4], now) == PcHealth.Silent,
+        "report: OK, late (9 days), failed and silent (no note for 6 days) told apart");
+    Check(WeeklyReport.Health(Pc("WEEKLY", "x", "", now.AddDays(-5), now.AddDays(-5), "OK", every: 168), now) == PcHealth.Ok,
+        "report: a weekly PC last seen 5 days ago is still OK");
+
+    var reports = WeeklyReport.Build(new[] { folder }, now);
+    var acme = reports.FirstOrDefault(r => r.Client == "ACME Pte Ltd");
+    Check(reports.Count == 2 && acme?.Pcs.Count == 5, $"report: one report per client ({reports.Count} reports; ACME has {acme?.Pcs.Count} PCs)");
+    Check(acme != null && acme.Subject == "[ACME Pte Ltd] Weekly backup report: 2 of 5 PCs OK", $"report: subject names the client and counts ({acme?.Subject})");
+    Check(acme != null && acme.Html.Contains("RECEPTION-PC hasn&#39;t backed up since") && acme.Html.Contains("DESIGN-03 hasn&#39;t reported in since")
+          && acme.Html.Contains("Could not connect to") && acme.Html.Contains("Front desk &#183; used by john.tan") && acme.Html.Contains("9 days"),
+        "report: problems explained in plain words, with location and signed-in user");
+    Check(acme != null && !acme.Html.Contains("SERVER-01") && acme.Text.Contains("RECEPTION-PC"), "report: other clients' PCs aren't included; plain-text version too");
+    File.WriteAllText(Path.Combine(work, "weekly-report-sample.html"), acme?.Html ?? "");
+}
+
+// ---- NTFS reader, file-level restore and change tracking on real NTFS volumes.
+NtfsTest.Run(work, log, Check);
 
 // ---- Removed after-backup choices: old jobs set to Sleep/Hibernate still load, as "do nothing".
 {

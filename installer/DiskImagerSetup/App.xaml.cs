@@ -28,7 +28,12 @@ namespace DiskImagerSetup
                 int wp = Array.FindIndex(e.Args, a => a.Equals("/waitpid", StringComparison.OrdinalIgnoreCase));
                 int waitPid = wp >= 0 && wp + 1 < e.Args.Length && int.TryParse(e.Args[wp + 1], out int pid) ? pid : 0;
                 bool relaunch = e.Args.Any(a => a.Equals("/relaunch", StringComparison.OrdinalIgnoreCase));
-                Shutdown(RunSilent(silentTarget, waitPid, relaunch));
+                string Arg(string name)
+                {
+                    int i = Array.FindIndex(e.Args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase));
+                    return i >= 0 && i + 1 < e.Args.Length ? e.Args[i + 1] : null;
+                }
+                Shutdown(RunSilent(silentTarget, waitPid, relaunch, Arg("/client"), Arg("/location")));
                 return;
             }
             InstallTarget target;
@@ -63,9 +68,11 @@ namespace DiskImagerSetup
         }
 
         /// <param name="sandbox">Test target, or null for the real install (needs admin).</param>
-        private static int RunSilent(InstallTarget sandbox, int waitPid, bool relaunch)
+        private static int RunSilent(InstallTarget sandbox, int waitPid, bool relaunch, string client, string location)
         {
             var target = sandbox ?? InstallTarget.Real();
+            target.Client = client;
+            target.Location = location;
             string log = sandbox != null
                 ? System.IO.Path.GetFullPath(System.IO.Path.Combine(target.DataFolder, "..", "..", "DiskImagerSetup.log")) // sandbox root
                 : System.IO.Path.Combine(System.IO.Path.GetTempPath(), "DiskImagerSetup.log");

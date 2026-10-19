@@ -43,6 +43,9 @@ public sealed class LiveDiskSource : IBlockSource
     public DiskInfo Disk { get; }
     /// <summary>Folders whose files were left out ("Exclude folders"), to be emptied after a restore.</summary>
     public List<ImageExclusion> Exclusions { get; } = new();
+    /// <summary>Change-tracking scans of the snapshotted NTFS volumes (when requested).</summary>
+    public List<(PartitionInfo Partition, Ntfs.ChangeTracker.Scan Scan)> TrackingScans { get; } = new();
+    private bool _track;
     public int BlockSize { get; } = DefaultBlockSize;
     public long DiskSize => Disk.Size;
     public int SectorSize => Disk.SectorSize;
@@ -59,9 +62,10 @@ public sealed class LiveDiskSource : IBlockSource
     }
 
     /// <param name="exclude">"Exclude folders" patterns such as C:\Users\*\Downloads.</param>
-    public static LiveDiskSource Open(DiskInfo disk, bool useVss, Logger log, CancellationToken ct, IReadOnlyList<string>? exclude = null)
+    /// <param name="track">Scan each snapshotted NTFS volume for change tracking (faster incrementals).</param>
+    public static LiveDiskSource Open(DiskInfo disk, bool useVss, Logger log, CancellationToken ct, IReadOnlyList<string>? exclude = null, bool track = false)
     {
-        var src = new LiveDiskSource(disk, exclude, log);
+        var src = new LiveDiskSource(disk, exclude, log) { _track = track };
         try
         {
             src.Build(useVss, ct);
@@ -170,6 +174,17 @@ public sealed class LiveDiskSource : IBlockSource
             string? snapshotRoot = region.Reader != _disk ? region.Reader.Path : null;
             SkipSystemFiles(p, vol, snapshotRoot, used);
             if (mapped) SkipExcludedFolders(p, vol, snapshotRoot, used);
+            if (_track && snapshotRoot != null && p.Offset % BlockSize == 0)
+            {
+                try
+                {
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    var ntfs = new Ntfs.NtfsVolume(new Ntfs.DeviceVolumeReader(region.Reader, p.Length));
+                    TrackingScans.Add((p, Ntfs.ChangeTracker.ScanVolume(ntfs, BlockSize, p.Length)));
+                    _log.Info($"{name}: change tracking map built ({ntfs.MftRecordCount:N0} file records, {sw.Elapsed.TotalSeconds:0.0} s).");
+                }
+                catch (Exception ex) { _log.Info($"{name}: change tracking unavailable this time ({ex.Message}); every used block will be read."); }
+            }
         }
         _regions.Add(region);
     }

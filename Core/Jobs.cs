@@ -65,6 +65,8 @@ public sealed class BackupJob
     public NotifyWhen Notify { get; set; } = NotifyWhen.OnFailure;
     /// <summary>Re-read and check each backup straight after it's made.</summary>
     public bool VerifyAfter { get; set; }
+    /// <summary>Faster incrementals: read only blocks NTFS change tracking says may have changed.</summary>
+    public bool ChangeTracking { get; set; } = true;
     /// <summary>Backup encryption password, protected for this PC (null = images aren't encrypted).</summary>
     public string? EncryptionPasswordProtected { get; set; }
     /// <summary>Folders left out of the image, e.g. C:\Users\*\Downloads (restored as empty folders).</summary>

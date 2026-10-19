@@ -28,6 +28,14 @@ public partial class App : Application
             Shutdown(MissedCheck.Run(new Logger()));
             return;
         }
+        if (e.Args.Contains("--weekly-report"))
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            var log = new Logger();
+            try { log.Info(WeeklyReport.Send(log)); Shutdown(0); }
+            catch (Exception ex) { log.Error("Weekly report: " + ex.Message); Shutdown(1); }
+            return;
+        }
 
         // Tray helper: runs as the signed-in user (no admin needed), one per session.
         if (e.Args.Contains("--agent"))
@@ -73,6 +81,20 @@ public partial class App : Application
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
             Shutdown(Cli.Run(e.Args));
+            return;
+        }
+
+        // Set by setup: DiskImagerSetup.exe /silent /client "ACME Pte Ltd" /location "Front desk"
+        if (e.Args.Contains("--configure"))
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            string? Arg(string name) { int i = Array.IndexOf(e.Args, name); return i >= 0 && i + 1 < e.Args.Length ? e.Args[i + 1] : null; }
+            var s = AppSettings.Load();
+            if (Arg("--client") is string client) s.Report.ClientName = client.Trim();
+            if (Arg("--location") is string location) s.Report.Location = location.Trim();
+            s.Save();
+            new Logger().Info($"Setup: client \"{s.Report.ClientName}\", location \"{s.Report.Location}\".");
+            Shutdown(0);
             return;
         }
 

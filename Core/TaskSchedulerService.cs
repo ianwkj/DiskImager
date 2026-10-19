@@ -35,6 +35,7 @@ public static class TaskSchedulerService
         if (!JobStore.Load().Any(j => j.RegisteredTasks.Count > 0)) return;
         if (Directory.Exists(InstallFolder)) EnsureInstalled(log);
         SyncMissedCheck(log);
+        try { SyncReportTask(log); } catch (Exception ex) { log.Warn("Couldn't update the weekly report task: " + ex.Message); }
     }
 
     public const string MissedCheckTask = @"DiskImager\Missed backup check";
@@ -67,6 +68,7 @@ public static class TaskSchedulerService
     {
         RunSchtasks($"/Delete /TN \"{MissedCheckTask}\" /F", throwOnError: false);
         RunSchtasks($"/Delete /TN \"{TrayAgentTask}\" /F", throwOnError: false);
+        RunSchtasks($"/Delete /TN \"{ReportTask}\" /F", throwOnError: false);
     }
 
     private static void CreateFromXml(string name, string xml)
@@ -184,6 +186,71 @@ public static class TaskSchedulerService
                 <Exec>
                   <Command>{SecurityElement.Escape(exe)}</Command>
                   <Arguments>--check-missed</Arguments>
+                </Exec>
+              </Actions>
+            </Task>
+            """;
+    }
+
+    public const string ReportTask = @"DiskImager\Weekly report";
+
+    /// <summary>Creates or removes the weekly report task to match this PC's settings.</summary>
+    public static void SyncReportTask(Logger log)
+    {
+        var r = AppSettings.Load().Report;
+        if (!r.SendWeekly)
+        {
+            RunSchtasks($"/Delete /TN \"{ReportTask}\" /F", throwOnError: false);
+            return;
+        }
+        CreateFromXml(ReportTask, BuildReportXml(EnsureInstalled(log), r.Day, r.Time));
+        log.Info($"Weekly report scheduled for {r.Day} at {r.Time}.");
+    }
+
+    public static string BuildReportXml(string exe, DayOfWeek day, string time)
+    {
+        if (!TimeSpan.TryParse(time, out var t)) t = new TimeSpan(8, 0, 0);
+        return $"""
+            <?xml version="1.0" encoding="UTF-16"?>
+            <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+              <RegistrationInfo>
+                <Description>DiskImager: emails the weekly backup report for this office.</Description>
+              </RegistrationInfo>
+              <Triggers>
+                <CalendarTrigger>
+                  <StartBoundary>{DateTime.Today:yyyy-MM-dd}T{t:hh\:mm}:00</StartBoundary>
+                  <Enabled>true</Enabled>
+                  <ScheduleByWeek>
+                    <DaysOfWeek><{day} /></DaysOfWeek>
+                    <WeeksInterval>1</WeeksInterval>
+                  </ScheduleByWeek>
+                </CalendarTrigger>
+              </Triggers>
+              <Principals>
+                <Principal id="Author">
+                  <UserId>S-1-5-18</UserId>
+                  <RunLevel>HighestAvailable</RunLevel>
+                </Principal>
+              </Principals>
+              <Settings>
+                <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+                <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+                <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+                <AllowHardTerminate>true</AllowHardTerminate>
+                <StartWhenAvailable>true</StartWhenAvailable>
+                <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+                <AllowStartOnDemand>true</AllowStartOnDemand>
+                <Enabled>true</Enabled>
+                <Hidden>false</Hidden>
+                <RunOnlyIfIdle>false</RunOnlyIfIdle>
+                <WakeToRun>false</WakeToRun>
+                <ExecutionTimeLimit>PT30M</ExecutionTimeLimit>
+                <Priority>7</Priority>
+              </Settings>
+              <Actions Context="Author">
+                <Exec>
+                  <Command>{SecurityElement.Escape(exe)}</Command>
+                  <Arguments>--weekly-report</Arguments>
                 </Exec>
               </Actions>
             </Task>

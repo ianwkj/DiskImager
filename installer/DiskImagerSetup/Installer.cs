@@ -18,6 +18,8 @@ namespace DiskImagerSetup
         public string UninstallKeyPath;
         public string DataFolder;
         public bool RunPostInstall = true;
+        /// <summary>Optional labels for this PC, from /client and /location.</summary>
+        public string Client, Location;
 
         public string ExePath => Path.Combine(InstallDir, "DiskImager.exe");
 
@@ -114,6 +116,13 @@ namespace DiskImagerSetup
             if (t.RunPostInstall)
             {
                 // Existing jobs get their scheduled tasks (and the helper tasks) re-created for this version.
+                if (t.Client != null || t.Location != null)
+                {
+                    progress("Labelling this PC...", 0.92);
+                    string args = "--configure" + (t.Client != null ? $" --client \"{t.Client.Replace("\"", "")}\"" : "") +
+                                  (t.Location != null ? $" --location \"{t.Location.Replace("\"", "")}\"" : "");
+                    RunAndWait(t.ExePath, args, TimeSpan.FromMinutes(1));
+                }
                 progress("Updating scheduled backups...", 0.94);
                 RunAndWait(t.ExePath, "--reschedule", TimeSpan.FromMinutes(2));
             }

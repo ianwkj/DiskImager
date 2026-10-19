@@ -31,6 +31,8 @@ public static class Uninstaller
         JobStore.Save(jobs);
         try { TaskSchedulerService.SyncMissedCheck(log); }
         catch (Exception ex) { log.Warn("Couldn't set up the helper tasks: " + ex.Message); }
+        try { TaskSchedulerService.SyncReportTask(log); }
+        catch (Exception ex) { log.Warn("Couldn't set up the weekly report task: " + ex.Message); }
         log.Info($"Setup: {jobs.Count} job(s) re-scheduled.");
     }
 

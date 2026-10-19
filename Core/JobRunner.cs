@@ -53,6 +53,7 @@ public static class JobRunner
             DeferRetention = true,
             ExcludeFolders = job.ExcludeFolders,
             EncryptionPassword = password,
+            TrackingJobId = job.ChangeTracking ? job.Id : null,
         }, progress, ct, log);
         // Verify first, then clean up: old backups are only deleted once the new one is known to be good.
         if (job.VerifyAfter) BackupEngine.VerifyNewImage(result, progress, ct, log, password);
@@ -86,6 +87,7 @@ public static class JobRunner
         {
             var r = RunJob(job, incremental, progress, ct, log);
             RecordResult(job.Id, $"OK – {(r.WasFull ? "Full" : "Incremental")}, {Util.FormatBytes(r.BytesWritten)}", success: true);
+            WeeklyReport.WriteStatusNotes(log);
             Notifier.JobFinished(job, incremental, r, null, started, log);
             return r;
         }
@@ -98,6 +100,7 @@ public static class JobRunner
         {
             log.Error($"Job '{job.Name}' failed: {ex}");
             RecordResult(job.Id, "FAILED – " + ex.Message);
+            WeeklyReport.WriteStatusNotes(log);
             Notifier.JobFinished(job, incremental, null, ex.Message, started, log);
             throw;
         }

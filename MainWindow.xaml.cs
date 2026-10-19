@@ -42,6 +42,7 @@ public partial class MainWindow : Window
         Loaded += async (_, _) =>
         {
             LoadEmailSettings();
+            LoadReportSettings();
             AutoUpdateBox.IsChecked = AppSettings.Load().Updates.CheckOnStartup;
             _ = Task.Run(() =>
             {
@@ -326,6 +327,28 @@ public partial class MainWindow : Window
         await RefreshDisks();
     }
 
+    private void BrowseFiles_Click(object sender, RoutedEventArgs e)
+    {
+        var img = SelectedImage();
+        if (img == null) { Info("Select a backup to browse."); return; }
+        string? password = PasswordFor(img);
+        if (password == null) return;
+        ImageReader? reader = null;
+        try
+        {
+            reader = new ImageReader(img.Path);
+            var missing = reader.MissingChainFiles();
+            if (missing.Count > 0) throw new InvalidOperationException(missing[0]);
+            reader.Unlock(password);
+            new FileBrowserWindow(reader, _log) { Owner = this }.Show(); // the window owns the reader now
+        }
+        catch (Exception ex)
+        {
+            reader?.Dispose();
+            Error(ex.Message);
+        }
+    }
+
     private async void Verify_Click(object sender, RoutedEventArgs e)
     {
         var img = SelectedImage();
@@ -346,7 +369,8 @@ public partial class MainWindow : Window
     private void ImagesGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         bool selected = SelectedImage() != null;
-        VerifyButton.IsEnabled = RestoreButton.IsEnabled = selected;
+        VerifyButton.IsEnabled = RestoreButton.IsEnabled = BrowseFilesButton.IsEnabled = selected;
+        BrowseFilesButton.ToolTip = selected ? "Open this backup and copy individual files or folders out of it" : "Select a backup first";
         VerifyButton.ToolTip = selected ? "Check every block of this backup against its checksum" : "Select a backup first";
         RestoreButton.ToolTip = selected ? null : "Select a backup first";
     }
@@ -436,6 +460,57 @@ public partial class MainWindow : Window
         var s = AppSettings.Load();
         s.Updates.CheckOnStartup = AutoUpdateBox.IsChecked == true;
         s.Save();
+    }
+
+    // ---------------------------------------------------------------- This PC and the weekly report
+
+    private void LoadReportSettings()
+    {
+        var r = AppSettings.Load().Report;
+        ClientBox.Text = r.ClientName;
+        LocationBox2.Text = r.Location;
+        ReportBox.IsChecked = r.SendWeekly;
+        foreach (var d in new[] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday })
+            ReportDayBox.Items.Add(new ComboBoxItem { Content = d.ToString(), Tag = d });
+        ReportDayBox.SelectedIndex = ((int)r.Day + 6) % 7;
+        ReportTimeBox.Text = r.Time;
+        InputBehaviors.AttachTime(ReportTimeBox);
+        ReportWhenPanel.IsEnabled = r.SendWeekly;
+    }
+
+    private void ReportBox_Click(object sender, RoutedEventArgs e) => ReportWhenPanel.IsEnabled = ReportBox.IsChecked == true;
+
+    private async void SaveReport_Click(object sender, RoutedEventArgs e)
+    {
+        string time = InputBehaviors.CompleteTime(ReportTimeBox.Text);
+        if (!TimeSpan.TryParse(time, out _)) { ReportStatus.Text = "Enter a time like 08:00."; return; }
+        ReportTimeBox.Text = time;
+        var s = AppSettings.Load();
+        s.Report.ClientName = ClientBox.Text.Trim();
+        s.Report.Location = LocationBox2.Text.Trim();
+        s.Report.SendWeekly = ReportBox.IsChecked == true;
+        s.Report.Day = (ReportDayBox.SelectedItem as ComboBoxItem)?.Tag is DayOfWeek d ? d : DayOfWeek.Monday;
+        s.Report.Time = time;
+        try
+        {
+            s.Save();
+            await Task.Run(() =>
+            {
+                TaskSchedulerService.SyncReportTask(_log);
+                WeeklyReport.WriteStatusNotes(_log);
+            });
+            ReportStatus.Text = s.Report.SendWeekly ? $"Saved. The report goes out every {s.Report.Day} at {time}." : "Saved.";
+        }
+        catch (Exception ex) { ReportStatus.Text = "Couldn't save: " + ex.Message; }
+    }
+
+    private async void SendReport_Click(object sender, RoutedEventArgs e)
+    {
+        SendReportButton.IsEnabled = false;
+        ReportStatus.Text = "Collecting status notes and sending…";
+        try { ReportStatus.Text = await Task.Run(() => WeeklyReport.Send(_log)); }
+        catch (Exception ex) { ReportStatus.Text = "Couldn't send the report: " + ex.Message; }
+        finally { SendReportButton.IsEnabled = true; }
     }
 
     // ---------------------------------------------------------------- Settings
