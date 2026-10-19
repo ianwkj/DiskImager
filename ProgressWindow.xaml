@@ -1,0 +1,30 @@
+<Window x:Class="DiskImager.ProgressWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DiskImager – backup running" Width="460" SizeToContent="Height" ResizeMode="CanMinimize"
+        WindowStartupLocation="CenterScreen" Background="{StaticResource AppBackground}" Icon="app.ico"
+        FontFamily="{StaticResource UiFont}" FontSize="13">
+    <Window.TaskbarItemInfo>
+        <TaskbarItemInfo x:Name="Taskbar" ProgressState="Indeterminate" Description="DiskImager backup"/>
+    </Window.TaskbarItemInfo>
+    <StackPanel Margin="20,18,20,18">
+        <DockPanel>
+            <Image DockPanel.Dock="Left" Source="pack://application:,,,/logo.png" Width="42" Height="42" VerticalAlignment="Top"
+                   RenderOptions.BitmapScalingMode="HighQuality"/>
+            <StackPanel Margin="12,0,0,0">
+                <TextBlock x:Name="JobText" FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                <TextBlock x:Name="DescText" Style="{StaticResource Hint}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+            </StackPanel>
+        </DockPanel>
+        <TextBlock x:Name="StageText" FontWeight="SemiBold" Margin="0,16,0,8"/>
+        <ProgressBar x:Name="Bar" Maximum="100"/>
+        <TextBlock x:Name="DetailText" Style="{StaticResource Hint}" Margin="0,8,0,0"/>
+        <DockPanel Margin="0,16,0,0">
+            <Button DockPanel.Dock="Right" Content="Hide" Click="Hide_Click" Margin="0"/>
+            <Button x:Name="CancelButton" Content="Stop backup" Tag="&#xE711;" Foreground="{StaticResource DangerBrush}"
+                    Click="Cancel_Click" HorizontalAlignment="Left"/>
+        </DockPanel>
+        <TextBlock Style="{StaticResource Hint}" Margin="0,12,0,0"
+                   Text="The backup runs in the background. Closing this window doesn't stop it."/>
+    </StackPanel>
+</Window>

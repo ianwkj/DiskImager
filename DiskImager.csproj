@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <!-- Only for the tray icon (NotifyIcon) used by the tray helper. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>DiskImager</AssemblyName>
+    <RootNamespace>DiskImager</RootNamespace>
+    <Version>1.1.9</Version>
+    <Product>DiskImager</Product>
+    <Company>TechSource Digital</Company>
+    <Authors>TechSource Digital</Authors>
+    <Copyright>© 2026 TechSource Digital</Copyright>
+    <Description>DiskImager – disk imaging, cloning and backup. Powered by TechSource Digital.</Description>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <NoWarn>CA1416</NoWarn>
+    <!-- .NET opts apps into CET shadow stacks by default; on Windows that's missing the supporting updates
+         (e.g. an unpatched Windows Server 2022) the runtime then refuses to start ("Your Windows doesn't fully
+         support CET"). A backup tool must run on servers that are behind on updates, so opt out. -->
+    <CETCompat>false</CETCompat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="tests\**" />
+    <Compile Remove="installer\**" />
+    <Page Remove="installer\**" />
+    <None Remove="installer\**" />
+    <EmbeddedResource Remove="installer\**" />
+    <!-- Windows Forms is only used by TrayAgent (aliased there); keep its names out of the WPF code. -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+    <Resource Include="app.ico" />
+    <Resource Include="logo.png" />
+    <None Remove="tests\**" />
+    <PackageReference Include="System.Management" Version="10.0.0" />
+    <PackageReference Include="MailKit" Version="4.18.1" />
+  </ItemGroup>
+
+</Project>
+

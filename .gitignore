@@ -1,0 +1,14 @@
+# Build output
+bin/
+obj/
+publish/
+.vs/
+*.user
+
+# Built programs: installers are attached to GitHub Releases, not committed
+releases/
+installer/DiskImagerSetup/payload/
+*.exe
+
+# Test leftovers
+TestResults/
