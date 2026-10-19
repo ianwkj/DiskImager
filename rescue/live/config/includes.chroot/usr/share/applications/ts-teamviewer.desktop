@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=TeamViewer
+Comment=Remote support (downloads the official app on first use)
+Exec=/usr/local/bin/ts-remote teamviewer
+Icon=teamviewer
+Terminal=false
+Categories=Network;RemoteAccess;

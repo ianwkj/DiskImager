@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=DiskImager
+GenericName=Restore and rescue
+Comment=Restore a backup, copy files out of a backup, check disk health
+Exec=pkexec /opt/diskimager/diskimager-rescue
+Icon=/usr/share/pixmaps/diskimager.png
+Terminal=false
+Categories=System;
+StartupNotify=true

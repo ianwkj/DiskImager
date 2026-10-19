@@ -1,0 +1,7 @@
+# Files used on Linux (the rescue USB image) must keep Linux line endings.
+rescue/live/** text eol=lf
+*.sh text eol=lf
+.github/** text eol=lf
+*.gz binary
+*.png binary
+*.ico binary

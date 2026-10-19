@@ -1,0 +1,15 @@
+favorites=diskimager-rescue.desktop,firefox-esr.desktop,thunar.desktop,libreoffice-writer.desktop,libreoffice-calc.desktop,ts-tailscale.desktop,ts-teamviewer.desktop,ts-anydesk.desktop,gparted.desktop,xfce4-terminal.desktop,ts-setup-storage.desktop
+button-icon=/usr/share/pixmaps/diskimager.png
+button-title=Start
+show-button-title=false
+show-button-icon=true
+launcher-show-name=true
+launcher-show-description=false
+position-search-alternate=true
+position-categories-alternate=false
+menu-width=520
+menu-height=560
+menu-opacity=100
+category-icon-size=1
+item-icon-size=3
+default-category=0

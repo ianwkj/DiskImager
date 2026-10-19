@@ -1,0 +1,56 @@
+name: Rescue USB image
+
+# Builds the TechSource Rescue USB image (Debian live + DiskImager Rescue).
+# - On a version tag (v1.4.0 …) the image is attached to that GitHub release.
+# - On rescue-* branches and by hand ("Run workflow") it's kept as a downloadable build artifact.
+on:
+  workflow_dispatch:
+  push:
+    branches: [ 'rescue-*' ]
+    tags: [ 'v*' ]
+
+permissions:
+  contents: write
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Version
+        id: v
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"; else echo "version=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Publish DiskImager Rescue for Linux
+        run: |
+          dotnet publish rescue/DiskImager.Rescue/DiskImager.Rescue.csproj -c Release -r linux-x64 --self-contained true \
+            -p:DebugType=none -o rescue/live/config/includes.chroot/opt/diskimager
+          ls -la rescue/live/config/includes.chroot/opt/diskimager | head -20
+
+      - name: Build the live image
+        run: |
+          mkdir -p out
+          docker run --rm --privileged -e RESCUE_VERSION=${{ steps.v.outputs.version }} -v "$PWD":/w -w /w debian:trixie bash rescue/live/build.sh /w/out
+
+      - name: Keep the image as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TechSource-Rescue-${{ steps.v.outputs.version }}
+          path: out/*.iso
+          compression-level: 0
+          retention-days: 14
+
+      - name: Attach the image to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in $(seq 1 30); do gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 && break; sleep 20; done
+          gh release upload "$GITHUB_REF_NAME" out/*.iso --clobber

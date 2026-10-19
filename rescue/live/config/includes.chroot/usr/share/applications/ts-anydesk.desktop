@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=AnyDesk
+Comment=Remote support (downloads the official app on first use)
+Exec=/usr/local/bin/ts-remote anydesk
+Icon=anydesk
+Terminal=false
+Categories=Network;RemoteAccess;

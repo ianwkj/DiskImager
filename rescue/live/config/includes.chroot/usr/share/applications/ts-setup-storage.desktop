@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Saved storage
+Comment=Keep Wi-Fi passwords, sign-ins and files on this stick, encrypted
+Exec=/usr/local/bin/ts-setup-storage
+Icon=drive-harddisk-encrypted
+Terminal=false
+Categories=System;

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Tailscale
+Comment=Connect to your private Tailscale network
+Exec=/usr/local/bin/ts-tailscale
+Icon=network-vpn
+Terminal=false
+Categories=Network;

@@ -1,0 +1,21 @@
+#!/bin/bash
+# (root) Adds an encrypted persistence partition in the free space after the rescue system on DEVICE.
+# The password comes on standard input. Used by ts-setup-storage.
+set -euo pipefail
+DEV="$1"
+read -r PASS
+END=$(sfdisk -d "$DEV" | awk -F'[=,]' '/start=/{s=$2; z=$4; if (s+z>m) m=s+z} END {print m}')
+START=$(( (END + 2047) / 2048 * 2048 ))
+echo "start=$START, type=83" | sfdisk --append --no-reread --force "$DEV"
+partprobe "$DEV" || true
+udevadm settle
+PART=$(lsblk -n -p -o NAME,TYPE "$DEV" | awk '$2=="part"{p=$1} END{print p}')
+printf '%s' "$PASS" | cryptsetup luksFormat --type luks2 --batch-mode "$PART" -
+printf '%s' "$PASS" | cryptsetup open "$PART" tsr-persistence -
+mkfs.ext4 -q -L persistence /dev/mapper/tsr-persistence
+mkdir -p /mnt/tsr-persistence
+mount /dev/mapper/tsr-persistence /mnt/tsr-persistence
+echo "/ union" > /mnt/tsr-persistence/persistence.conf
+umount /mnt/tsr-persistence
+cryptsetup close tsr-persistence
+echo "done"

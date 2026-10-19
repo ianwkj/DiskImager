@@ -1,0 +1,5 @@
+// The rescue stick's technician account may do administrator tasks without a password
+// (mounting disks, network, installing remote-support tools, setting up saved storage).
+polkit.addRule(function (action, subject) {
+    if (subject.user == "tech" && subject.local && subject.active) return polkit.Result.YES;
+});

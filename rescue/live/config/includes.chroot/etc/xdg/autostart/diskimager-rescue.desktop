@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=DiskImager
+Comment=Opens DiskImager Rescue when the stick starts
+Exec=pkexec /opt/diskimager/diskimager-rescue
+Icon=/usr/share/pixmaps/diskimager.png
+Terminal=false
+X-GNOME-Autostart-Delay=3

@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=TechSource desktop setup
+Exec=/usr/local/bin/ts-desktop-setup
+Terminal=false
+NoDisplay=true
