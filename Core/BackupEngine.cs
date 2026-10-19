@@ -21,6 +21,8 @@ public sealed class BackupRequest
     public bool DeferRetention { get; init; }
     /// <summary>"Exclude folders" patterns, e.g. C:\Users\*\Downloads.</summary>
     public IReadOnlyList<string> ExcludeFolders { get; init; } = Array.Empty<string>();
+    /// <summary>Encrypt the image with this password (null or empty = not encrypted).</summary>
+    public string? EncryptionPassword { get; init; }
 }
 
 public sealed class BackupResult
@@ -80,6 +82,25 @@ public static class BackupEngine
             else parentEntry = chain.Images[^1];
         }
 
+        // Encryption: an incremental must use the same password (and so the same keys) as its set.
+        bool encrypt = !string.IsNullOrEmpty(req.EncryptionPassword);
+        ImageKey? key = null;
+        if (parentEntry != null)
+        {
+            var pe = parentEntry.Header.Encryption;
+            if (pe == null && encrypt)
+            { log.Info("Encryption was turned on for this job: starting a new full backup."); parentEntry = null; }
+            else if (pe != null && !encrypt)
+            { log.Info("Encryption was turned off for this job: starting a new full backup."); parentEntry = null; }
+            else if (pe != null)
+            {
+                try { key = ImageKey.Open(req.EncryptionPassword!, pe); }
+                catch (WrongPasswordException) { log.Info("The backup password was changed: starting a new full backup."); parentEntry = null; }
+            }
+        }
+        if (encrypt && key == null) key = ImageKey.Create(req.EncryptionPassword!);
+        using var keyScope = key;
+
         using var parent = parentEntry != null ? new ImageReader(parentEntry.Path) : null;
         if (parent != null)
         {
@@ -114,12 +135,14 @@ public static class BackupEngine
             Style = req.Disk.Style,
             UsedBytes = (long)source.Blocks.Count * source.BlockSize,
             Exclusions = source.Exclusions,
+            Encryption = key?.Info,
             Partitions = req.Disk.Partitions.Select(p => new ImagePartition
             {
                 Number = p.Number, Offset = p.Offset, Length = p.Length, IsContainer = p.IsContainer, Type = p.TypeName,
                 FileSystem = p.Volume?.FileSystem ?? "", Label = p.Volume?.Label ?? "", DriveLetter = p.Volume?.DriveLetter,
             }).ToList(),
         };
+        if (key != null) log.Info("The image is encrypted with the job's password (AES-256).");
 
         string path = System.IO.Path.Combine(req.DestinationFolder, fileName);
         using var writer = new ImageWriter(path, header);
@@ -157,7 +180,7 @@ public static class BackupEngine
         {
             foreach (var b in queue.GetConsumingEnumerable(ct))
             {
-                Parallel.For(0, b.Count, k => Process(b, k, parentMap, req.Compression, level));
+                Parallel.For(0, b.Count, k => Process(b, k, parentMap, req.Compression, level, key, header.ChainId));
                 for (int k = 0; k < b.Count; k++)
                 {
                     if (b.Ref[k] != null) writer.AddReference(b.Ref[k]!);
@@ -250,12 +273,15 @@ public static class BackupEngine
     /// "Verify image when complete": re-reads what this backup wrote and checks every block's checksum.
     /// A failed check marks the image as damaged (so it's never built on) and throws.
     /// </summary>
-    public static void VerifyNewImage(BackupResult result, IProgress<ProgressInfo>? progress, CancellationToken ct, Logger log)
+    public static void VerifyNewImage(BackupResult result, IProgress<ProgressInfo>? progress, CancellationToken ct, Logger log, string? password = null)
     {
         log.Info($"Verifying image {Path.GetFileName(result.ImagePath)}…");
         int bad;
         using (var reader = new ImageReader(result.ImagePath))
+        {
+            if (reader.IsEncrypted) reader.Unlock(password ?? "");
             bad = reader.Verify(progress, ct, log, onlyThisFile: true);
+        }
         if (bad > 0)
         {
             try { File.WriteAllText(ImageEntry.DamagedMarker(result.ImagePath), $"Failed verification on {DateTime.Now:g}: {bad} damaged block(s).\n"); }
@@ -268,11 +294,23 @@ public static class BackupEngine
         log.Info("Image verified: every block matches its checksum.");
     }
 
-    private static void Process(BatchData b, int k, Dictionary<long, IndexEntry>? parentMap, CompressionChoice choice, CompressionLevel level)
+    private static void Process(BatchData b, int k, Dictionary<long, IndexEntry>? parentMap, CompressionChoice choice, CompressionLevel level,
+        ImageKey? key, Guid chainId)
+    {
+        Store(b, k, parentMap, choice, level, key);
+        // Encrypt after compressing (encrypted data doesn't compress).
+        if (key != null && b.Ref[k] == null && b.Out[k] != null)
+        {
+            b.Out[k] = key.Seal(b.Out[k], b.Index[k], chainId);
+            b.Flags[k] |= BlockFlags.Encrypted;
+        }
+    }
+
+    private static void Store(BatchData b, int k, Dictionary<long, IndexEntry>? parentMap, CompressionChoice choice, CompressionLevel level, ImageKey? key)
     {
         var data = b.Data[k];
         int len = b.Length[k];
-        var hash = ImageFormat.Hash(data, len);
+        var hash = key?.Hash(data, len) ?? ImageFormat.Hash(data, len);
         b.Hash[k] = hash;
 
         if (parentMap != null && parentMap.TryGetValue(b.Index[k], out var pe) && pe.Hash.AsSpan().SequenceEqual(hash))

@@ -662,6 +662,79 @@ Check(JobStore.Unprotect(JobStore.Protect("s3cret!")) == "s3cret!", "NAS passwor
     Check(File.Exists(Path.Combine(outside, "precious.txt")), "exclude: emptying never follows a junction out of the folder");
 }
 
+// ---- Encryption: nothing readable on disk, wrong/missing password, incrementals, restore, tampering.
+{
+    bool FileContains(string path, byte[] needle) => File.ReadAllBytes(path).AsSpan().IndexOf(needle) >= 0;
+    var marker = Encoding.ASCII.GetBytes("TOP-SECRET-CLIENT-DATA-0123456789 ");
+    var secret = new byte[MiB];
+    for (int i = 0; i + marker.Length <= secret.Length; i += marker.Length) marker.CopyTo(secret, i);
+    using (var fs = new FileStream(srcPath, FileMode.Open)) { fs.Position = p2.Offset + 30 * MiB; fs.Write(secret); }
+
+    string eDir = Path.Combine(work, "enc"), plainDir = Path.Combine(work, "enc-plain");
+    const string pw = "correct horse battery";
+    BackupResult EBackup(string dir, bool incr, string? password) => BackupEngine.Run(new BackupRequest
+    {
+        Disk = src, DestinationFolder = dir, JobName = "Enc", Incremental = incr, Compression = CompressionChoice.None, EncryptionPassword = password,
+    }, null, CancellationToken.None, log);
+
+    var plainImg = EBackup(plainDir, false, null);
+    var ef = EBackup(eDir, false, pw);
+    var efHeader = ImageFormat.ReadHeader(ef.ImagePath);
+    Check(FileContains(plainImg.ImagePath, marker), "encryption: (control) an unencrypted image holds the data as-is");
+    Check(efHeader.IsEncrypted && !FileContains(ef.ImagePath, marker), "encryption: the encrypted image holds nothing readable");
+    Check(!FileContains(ef.ImagePath, Encoding.UTF8.GetBytes(pw)), "encryption: the password itself isn't stored in the image");
+
+    using (var r = new ImageReader(ef.ImagePath))
+    {
+        bool locked = false, wrong = false;
+        try { r.Verify(null, CancellationToken.None, log); } catch (ImageLockedException) { locked = true; }
+        try { r.Unlock("not the password"); } catch (WrongPasswordException) { wrong = true; }
+        Check(locked && wrong, "encryption: can't be read without the password; a wrong password is refused");
+        long secretBlock = (p2.Offset + 30 * MiB) / MiB;
+        var e = r.Index.First(x => x.BlockIndex == secretBlock);
+        Check(!e.Hash.AsSpan().SequenceEqual(ImageFormat.Hash(secret, secret.Length)), "encryption: block checksums don't reveal the data");
+        r.Unlock(pw);
+        Check(r.Verify(null, CancellationToken.None, log) == 0, "encryption: verifies with the right password");
+    }
+
+    using (var fs = new FileStream(srcPath, FileMode.Open)) { var chg = new byte[2 * MiB]; rnd.NextBytes(chg); fs.Position = p1.Offset + MiB; fs.Write(chg); }
+    Thread.Sleep(1100);
+    var ei = EBackup(eDir, true, pw);
+    Check(!ei.WasFull && ei.BytesWritten < ef.BytesWritten / 2, $"encryption: incremental with the same password stays small ({Util.FormatBytes(ei.BytesWritten)})");
+    BackupEngine.VerifyNewImage(ei, null, CancellationToken.None, log, pw);
+    Check(ei.Verified, "encryption: verify image when complete works with the job's password");
+
+    string et = MakeTarget("restore-encrypted.disk", srcSize);
+    using (var r = new ImageReader(ei.ImagePath))
+    {
+        r.Unlock(pw);
+        DiskWriterEngine.Write(r, MakeDisk(950, et, srcSize), false, "Restoring", null, CancellationToken.None, log);
+    }
+    Check(SameRange(srcPath, et, p1.Offset, p1.Length) && SameRange(srcPath, et, p2.Offset, p2.Length),
+        "encryption: restoring the encrypted incremental gives back the source byte-for-byte");
+
+    Thread.Sleep(1100);
+    var changed = EBackup(eDir, true, "a different password");
+    Thread.Sleep(1100);
+    var off = EBackup(eDir, true, null);
+    Check(changed.WasFull && ImageFormat.ReadHeader(changed.ImagePath).IsEncrypted, "encryption: a changed password starts a new full backup");
+    Check(off.WasFull && !ImageFormat.ReadHeader(off.ImagePath).IsEncrypted, "encryption: turning it off starts a new full backup");
+
+    // Tampering: change one byte inside the stored data.
+    using (var fs = new FileStream(ef.ImagePath, FileMode.Open))
+    {
+        fs.Position = fs.Length / 2;
+        int b = fs.ReadByte();
+        fs.Position = fs.Length / 2;
+        fs.WriteByte((byte)(b ^ 0x40));
+    }
+    using (var r = new ImageReader(ef.ImagePath))
+    {
+        r.Unlock(pw);
+        Check(r.Verify(null, CancellationToken.None, log) > 0, "encryption: a single changed byte is detected");
+    }
+}
+
 // ---- Removed after-backup choices: old jobs set to Sleep/Hibernate still load, as "do nothing".
 {
     var loaded = JobStore.Parse("[{\"Name\":\"A\",\"After\":\"Sleep\"},{\"Name\":\"B\",\"After\":\"Hibernate\"},{\"Name\":\"C\",\"After\":\"Shutdown\"},{\"Name\":\"D\",\"After\":\"Restart\"}]");

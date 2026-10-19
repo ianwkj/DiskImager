@@ -253,7 +253,7 @@ public partial class MainWindow : Window
                     var img = c.Images[i];
                     var h = img.Header;
                     bool ok = Enumerable.Range(0, h.ChainOrdinal + 1).All(k => k < c.Images.Count && c.Images[k].Header.ChainOrdinal == k);
-                    rows.Add(new ImageRow(img, h.CreatedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm"), h.KindText, h.JobName,
+                    rows.Add(new ImageRow(img, h.CreatedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm"), h.KindText + (h.IsEncrypted ? " · encrypted" : ""), h.JobName,
                         h.ComputerName, $"{h.DiskModel} ({Util.FormatBytes(h.DiskSize)})", Util.FormatBytes(img.FileSize),
                         img.Damaged ? "Damaged" : ok ? "Ready" : "Missing files", System.IO.Path.GetFileName(img.Path)));
                 }
@@ -270,6 +270,20 @@ public partial class MainWindow : Window
 
     private ImageEntry? SelectedImage() => (ImagesGrid.SelectedItem as ImageRow)?.Entry;
 
+    // Passwords typed this session, per backup set, so a set only has to be unlocked once.
+    private readonly Dictionary<Guid, string> _setPasswords = new();
+
+    /// <summary>The password for an encrypted image (asking if needed); "" for unencrypted; null if the user cancelled.</summary>
+    private string? PasswordFor(ImageEntry img)
+    {
+        if (!img.Header.IsEncrypted) return "";
+        if (_setPasswords.TryGetValue(img.Header.ChainId, out var known)) return known;
+        var dlg = new PasswordWindow(img.Header) { Owner = this };
+        if (dlg.ShowDialog() != true) return null;
+        _setPasswords[img.Header.ChainId] = dlg.Password;
+        return dlg.Password;
+    }
+
     private async void Restore_Click(object sender, RoutedEventArgs e)
     {
         var img = SelectedImage();
@@ -280,6 +294,8 @@ public partial class MainWindow : Window
         var chosen = (RestoreDiskList.SelectedItem as FrameworkElement)?.Tag as DiskInfo;
         if (chosen != null && chosen.Number == imageDisk) { Error("That drive holds the image you're restoring from. Pick a different drive."); return; }
         if (chosen?.IsSystem == true) { Error("Windows is running from that drive, so it can't be overwritten. Pick a different drive."); return; }
+        string? password = PasswordFor(img);
+        if (password == null) return;
 
         SourceDescription source;
         try
@@ -303,6 +319,7 @@ public partial class MainWindow : Window
         await RunOperation($"Restoring to Disk {target.Number}", (p, ct) =>
         {
             using var reader = new ImageReader(img.Path);
+            reader.Unlock(password);
             DiskCopy.Execute(reader, plan, target, newIds, staging, "Restoring", p, ct, _log);
             return $"Restore complete. Disk {target.Number} now holds the backup from {h.CreatedUtc.ToLocalTime():g}." + ExtendNote();
         });
@@ -313,9 +330,12 @@ public partial class MainWindow : Window
     {
         var img = SelectedImage();
         if (img == null) { Info("Select an image to verify."); return; }
+        string? password = PasswordFor(img);
+        if (password == null) return;
         await RunOperation("Verifying image", (p, ct) =>
         {
             using var reader = new ImageReader(img.Path);
+            reader.Unlock(password);
             int bad = reader.Verify(p, ct, _log);
             if (bad > 0) throw new InvalidDataException($"{bad} damaged blocks found. Don't rely on this image; see the Log tab.");
             _log.Info($"Verified {System.IO.Path.GetFileName(img.Path)}: all blocks OK.");

@@ -4,6 +4,7 @@ namespace DiskImager.Core;
 /// Command-line use for scripts and IT admins (runs without a window; needs admin rights):
 ///   DiskImager.exe --cli verify  "&lt;image.dimg&gt;"
 ///   DiskImager.exe --cli restore "&lt;image.dimg&gt;" &lt;disk number&gt; [--layout auto|keep] [--new-ids]
+/// Encrypted backups also need --password "&lt;password&gt;".
 /// Results go to the DiskImager log and, with --out "&lt;file&gt;", to a text file. Exit code 0 = OK, 1 = failed.
 /// A restore refuses the disk Windows runs from and the disk holding the image.
 /// </summary>
@@ -20,12 +21,22 @@ public static class Cli
             if (outFile != null) try { File.AppendAllText(outFile, m + Environment.NewLine); } catch { }
         }
 
+        int pw = Array.IndexOf(args, "--password");
+        string? password = pw >= 0 && pw + 1 < args.Length ? args[pw + 1] : null;
+        void Unlock(ImageReader r)
+        {
+            if (!r.IsEncrypted) return;
+            if (password == null) throw new InvalidOperationException("This backup is encrypted: add --password \"<password>\".");
+            r.Unlock(password);
+        }
+
         var a = args.SkipWhile(x => x != "--cli").Skip(1).ToList();
         try
         {
             if (a.Count >= 2 && a[0] == "verify")
             {
                 using var reader = new ImageReader(a[1]);
+                Unlock(reader);
                 var missing = reader.MissingChainFiles();
                 if (missing.Count > 0) throw new InvalidOperationException(missing[0]);
                 int bad = reader.Verify(null, CancellationToken.None, log);
@@ -44,6 +55,7 @@ public static class Cli
                     throw new InvalidOperationException("The image is stored on the target disk.");
 
                 using var reader = new ImageReader(image);
+                Unlock(reader);
                 var missing = reader.MissingChainFiles();
                 if (missing.Count > 0) throw new InvalidOperationException(missing[0]);
                 var plan = Layout.Original(SourceDescription.FromImage(reader), target.Size, target.SectorSize);
@@ -61,7 +73,7 @@ public static class Cli
                 return 0;
             }
 
-            Say("Usage: --cli verify <image> | --cli restore <image> <disk number> [--layout auto|keep] [--new-ids] [--out <file>]");
+            Say("Usage: --cli verify <image> | --cli restore <image> <disk number> [--layout auto|keep] [--new-ids] [--password <pw>] [--out <file>]");
             return 1;
         }
         catch (Exception ex)

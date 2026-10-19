@@ -51,11 +51,15 @@ public sealed class ImageHeader
     public long UsedBytes { get; set; }
     /// <summary>Folders whose files weren't stored ("Exclude folders"); a restore empties them.</summary>
     public List<ImageExclusion> Exclusions { get; set; } = new();
+    /// <summary>Set when the blocks are encrypted with a password (null = not encrypted).</summary>
+    public EncryptionInfo? Encryption { get; set; }
 
+    [JsonIgnore] public bool IsEncrypted => Encryption != null;
     [JsonIgnore] public string KindText => IsFull ? "Full" : $"Incremental #{ChainOrdinal}";
 }
 
-public enum BlockFlags { Deflate = 0, Zero = 1, Stored = 2 }
+/// <summary>How a block is stored. Encrypted is combined with Deflate or Stored (zero blocks have no data).</summary>
+public enum BlockFlags { Deflate = 0, Zero = 1, Stored = 2, Encrypted = 8 }
 
 public sealed class IndexEntry
 {
@@ -186,8 +190,12 @@ public sealed class ImageReader : IBlockSource
     private readonly long[] _blocks;
     private readonly FileStream?[] _streams;
     private byte[] _compBuf = new byte[LiveDiskSource.DefaultBlockSize + 4096];
+    private byte[] _plainBuf = new byte[LiveDiskSource.DefaultBlockSize + 4096];
+    private ImageKey? _key;
 
     public string FilePath { get; }
+    public bool IsEncrypted => Header.IsEncrypted;
+    public bool IsUnlocked => !IsEncrypted || _key != null;
     public ImageHeader Header { get; }
     public int BlockSize => Header.BlockSize;
     public long DiskSize => Header.DiskSize;
@@ -227,6 +235,22 @@ public sealed class ImageReader : IBlockSource
     }
 
     public Dictionary<long, IndexEntry> BuildMap() => _index.ToDictionary(e => e.BlockIndex);
+
+    /// <summary>Opens an encrypted image with its password; throws <see cref="WrongPasswordException"/> if it's wrong.</summary>
+    public void Unlock(string password)
+    {
+        if (!IsEncrypted) return;
+        var key = ImageKey.Open(password, Header.Encryption!);
+        _key?.Dispose();
+        _key = key;
+    }
+
+    /// <summary>The block checksum used by this image (an HMAC when encrypted).</summary>
+    public byte[] HashOf(byte[] data, int length)
+    {
+        if (IsEncrypted && _key == null) throw new ImageLockedException();
+        return _key?.Hash(data, length) ?? ImageFormat.Hash(data, length);
+    }
 
     /// <summary>Checks every file this image depends on is present and belongs to the same set.</summary>
     public List<string> MissingChainFiles()
@@ -268,21 +292,34 @@ public sealed class ImageReader : IBlockSource
     public void ReadEntry(IndexEntry e, byte[] buffer, out int length)
     {
         length = (int)Math.Min(BlockSize, DiskSize - e.BlockIndex * BlockSize);
-        switch (e.Flags)
+        var kind = e.Flags & ~BlockFlags.Encrypted;
+        if (kind == BlockFlags.Zero)
         {
-            case BlockFlags.Zero:
-                Array.Clear(buffer, 0, length);
-                return;
-            case BlockFlags.Stored:
-                ReadRaw(e, buffer);
-                return;
-            default:
-                if (_compBuf.Length < e.Length) _compBuf = new byte[e.Length];
-                ReadRaw(e, _compBuf);
-                using (var ds = new DeflateStream(new MemoryStream(_compBuf, 0, e.Length), CompressionMode.Decompress))
-                    ds.ReadExactly(buffer, 0, length);
-                return;
+            Array.Clear(buffer, 0, length);
+            return;
         }
+        bool encrypted = (e.Flags & BlockFlags.Encrypted) != 0;
+        if (encrypted && _key == null) throw new ImageLockedException();
+
+        if (_compBuf.Length < e.Length) _compBuf = new byte[e.Length];
+        ReadRaw(e, _compBuf);
+        byte[] payload = _compBuf;
+        int payloadLength = e.Length;
+        if (encrypted)
+        {
+            if (_plainBuf.Length < e.Length) _plainBuf = new byte[e.Length];
+            payloadLength = _key!.Open(_compBuf.AsSpan(0, e.Length), e.BlockIndex, Header.ChainId, _plainBuf);
+            payload = _plainBuf;
+        }
+
+        if (kind == BlockFlags.Stored)
+        {
+            if (payloadLength != length) throw new InvalidDataException($"Block {e.BlockIndex} has the wrong size.");
+            Buffer.BlockCopy(payload, 0, buffer, 0, length);
+            return;
+        }
+        using var ds = new DeflateStream(new MemoryStream(payload, 0, payloadLength), CompressionMode.Decompress);
+        ds.ReadExactly(buffer, 0, length);
     }
 
     private void ReadRaw(IndexEntry e, byte[] target)
@@ -298,6 +335,7 @@ public sealed class ImageReader : IBlockSource
     /// </summary>
     public int Verify(IProgress<ProgressInfo>? progress, CancellationToken ct, Logger log, bool onlyThisFile = false)
     {
+        if (!IsUnlocked) throw new ImageLockedException();
         var buf = new byte[BlockSize];
         var entries = onlyThisFile ? _index.Where(e => e.Ordinal == Header.ChainOrdinal).ToArray() : _index;
         var tracker = new ProgressTracker(progress, "Verifying image", (long)entries.Length * BlockSize);
@@ -309,7 +347,7 @@ public sealed class ImageReader : IBlockSource
             try
             {
                 ReadEntry(e, buf, out int len);
-                if (!ImageFormat.Hash(buf, len).AsSpan().SequenceEqual(e.Hash))
+                if (!HashOf(buf, len).AsSpan().SequenceEqual(e.Hash))
                 {
                     bad++;
                     log.Error($"Block {e.BlockIndex} failed its checksum.");
@@ -329,5 +367,6 @@ public sealed class ImageReader : IBlockSource
     public void Dispose()
     {
         foreach (var s in _streams) s?.Dispose();
+        _key?.Dispose();
     }
 }

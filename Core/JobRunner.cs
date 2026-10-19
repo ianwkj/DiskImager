@@ -38,6 +38,9 @@ public static class JobRunner
         NetworkShare.Connect(job.Destination, job.NetUser, JobStore.Unprotect(job.NetPasswordProtected), log);
         var disk = DiskEnumerator.FindDisk(job.SourceDiskId)
                    ?? throw new InvalidOperationException($"The source disk ({job.SourceDiskDescription}) is not connected.");
+        string? password = JobStore.Unprotect(job.EncryptionPasswordProtected);
+        if (job.EncryptionPasswordProtected != null && string.IsNullOrEmpty(password))
+            throw new InvalidOperationException("The job's backup password couldn't be read on this PC. Edit the job and enter the password again.");
         var result = BackupEngine.Run(new BackupRequest
         {
             Disk = disk,
@@ -49,9 +52,10 @@ public static class JobRunner
             KeepFullSets = job.KeepFullSets,
             DeferRetention = true,
             ExcludeFolders = job.ExcludeFolders,
+            EncryptionPassword = password,
         }, progress, ct, log);
         // Verify first, then clean up: old backups are only deleted once the new one is known to be good.
-        if (job.VerifyAfter) BackupEngine.VerifyNewImage(result, progress, ct, log);
+        if (job.VerifyAfter) BackupEngine.VerifyNewImage(result, progress, ct, log, password);
         ImageCatalog.ApplyRetention(job.Destination, job.Name, job.KeepFullSets, result.ChainId, log);
         return result;
     }

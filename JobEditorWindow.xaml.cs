@@ -45,6 +45,10 @@ public partial class JobEditorWindow : Window
         NotifyBox.SelectedIndex = (int)Job.Notify;
         NotifyHint.Text = AppSettings.Load().Email.Enabled ? "" : "Set up email on the Settings tab first.";
         ExcludeBox.Text = string.Join(Environment.NewLine, Job.ExcludeFolders);
+        EncryptBox.IsChecked = Job.EncryptionPasswordProtected != null;
+        if (Job.EncryptionPasswordProtected != null)
+            EncPass1.ToolTip = EncPass2.ToolTip = "A password is saved. Leave both boxes empty to keep it.";
+        EncryptPanel.IsEnabled = EncryptBox.IsChecked == true;
         KeepBox.Text = Job.KeepFullSets.ToString();
         MaxIncrBox.Text = Job.MaxIncrementals.ToString();
         if (!string.IsNullOrEmpty(Job.NetPasswordProtected))
@@ -99,6 +103,19 @@ public partial class JobEditorWindow : Window
 
     private List<string> ExcludeLines() =>
         ExcludeBox.Text.Split('\n').Select(l => l.Trim().TrimEnd('\\')).Where(l => l.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+    private void EncryptBox_Click(object sender, RoutedEventArgs e) => EncryptPanel.IsEnabled = EncryptBox.IsChecked == true;
+
+    /// <summary>The protected password to save, or null when encryption is off. Throws if the boxes don't agree.</summary>
+    private string? ReadEncryption()
+    {
+        if (EncryptBox.IsChecked != true) return null;
+        string a = EncPass1.Password, b = EncPass2.Password;
+        if (a.Length == 0 && b.Length == 0 && Job.EncryptionPasswordProtected != null) return Job.EncryptionPasswordProtected;
+        if (a.Length < 8) throw new ArgumentException("Choose a backup password of at least 8 characters.");
+        if (a != b) throw new ArgumentException("The two backup passwords don't match.");
+        return JobStore.Protect(a);
+    }
 
     private void AddSuggested_Click(object sender, RoutedEventArgs e)
     {
@@ -157,6 +174,7 @@ public partial class JobEditorWindow : Window
             if (dest.Length < 2) throw new ArgumentException("Choose where to save the images.");
             if (NetworkShare.IsNetworkPath(dest)) NetworkShare.ShareRoot(dest);
             else if (!(dest.Length >= 2 && dest[1] == ':')) throw new ArgumentException("Use a full path like E:\\Backups or \\\\NAS\\Backups.");
+            string? encryption = ReadEncryption();
             var exclude = ExcludeLines();
             foreach (var x in exclude)
                 if (Exclusions.Validate(x) is string why) throw new ArgumentException(why);
@@ -194,6 +212,7 @@ public partial class JobEditorWindow : Window
             Job.WakeToRun = WakeBox.IsChecked == true;
             Job.VerifyAfter = VerifyBox.IsChecked == true;
             Job.ExcludeFolders = exclude;
+            Job.EncryptionPasswordProtected = encryption;
             if (!_oneOff) Job.Notify = (NotifyWhen)Math.Max(0, NotifyBox.SelectedIndex);
             Job.KeepFullSets = keep;
             Job.MaxIncrementals = maxIncr;

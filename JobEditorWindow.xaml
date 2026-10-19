@@ -69,6 +69,22 @@
                 </StackPanel>
             </GroupBox>
 
+            <GroupBox Header="Encryption">
+                <StackPanel>
+                    <CheckBox x:Name="EncryptBox" Content="Encrypt backups with a password (AES-256)" Click="EncryptBox_Click"/>
+                    <StackPanel x:Name="EncryptPanel" Margin="26,8,0,0">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Password" VerticalAlignment="Center" Width="62"/>
+                            <PasswordBox x:Name="EncPass1" Width="170"/>
+                            <TextBlock Text="Again" VerticalAlignment="Center" Margin="14,0,8,0"/>
+                            <PasswordBox x:Name="EncPass2" Width="170"/>
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource Hint}" Margin="0,6,0,0" TextWrapping="Wrap"
+                                   Text="Keep this password somewhere safe, such as your password manager. Without it these backups can't be restored by anyone. Changing it starts a new full backup."/>
+                    </StackPanel>
+                </StackPanel>
+            </GroupBox>
+
             <GroupBox x:Name="OneOffGroup" Header="Backup type">
                 <StackPanel>
                     <RadioButton x:Name="OneOffFull" Content="Full – a complete, stand-alone image" IsChecked="True" Margin="0,2"/>
