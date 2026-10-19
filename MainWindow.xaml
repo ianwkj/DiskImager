@@ -85,11 +85,15 @@
             <!-- ======================================================== RESTORE -->
             <TabItem Header="Restore" Tag="&#xE777;" Style="{StaticResource NavItem}">
                 <DockPanel x:Name="RestorePanel">
-                    <StackPanel DockPanel.Dock="Top">
-                        <TextBlock Text="Restore" Style="{StaticResource PageTitle}"/>
-                        <TextBlock Text="Bring a disk back from an image: on this PC, another drive, or a NAS. Partitions can be resized to fit a smaller or larger drive."
-                                   Style="{StaticResource PageSubtitle}"/>
-                    </StackPanel>
+                    <DockPanel DockPanel.Dock="Top">
+                        <Button DockPanel.Dock="Right" Content="Create rescue USB…" Tag="&#xE88E;" Click="RescueUsb_Click" VerticalAlignment="Top" Margin="0"
+                                ToolTip="A USB stick that starts any PC into DiskImager, to restore a PC whose Windows won't start or whose drive was replaced"/>
+                        <StackPanel>
+                            <TextBlock Text="Restore" Style="{StaticResource PageTitle}"/>
+                            <TextBlock Text="Bring a disk back from an image: on this PC, another drive, or a NAS. Partitions can be resized to fit a smaller or larger drive. Or copy single files out of a backup."
+                                       Style="{StaticResource PageSubtitle}" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </DockPanel>
 
                     <Border DockPanel.Dock="Top" Background="White" BorderBrush="{StaticResource CardBorder}" BorderThickness="1" CornerRadius="10" Padding="16,14" Margin="0,0,0,14">
                         <Grid>
@@ -194,7 +198,7 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel MaxWidth="820" HorizontalAlignment="Left">
                         <TextBlock Text="Settings" Style="{StaticResource PageTitle}"/>
-                        <TextBlock Text="Email notifications, updates and information about DiskImager." Style="{StaticResource PageSubtitle}"/>
+                        <TextBlock Text="Email notifications, this PC's labels and the weekly report, updates, and information about DiskImager." Style="{StaticResource PageSubtitle}"/>
 
                         <GroupBox Header="Email notifications">
                             <StackPanel>

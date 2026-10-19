@@ -13,7 +13,7 @@
     <ApplicationManifest>setup.manifest</ApplicationManifest>
     <AssemblyName>DiskImagerSetup</AssemblyName>
     <RootNamespace>DiskImagerSetup</RootNamespace>
-    <Version>1.2.0</Version>
+    <Version>1.3.0</Version>
     <Product>DiskImager Setup</Product>
     <Company>TechSource Digital</Company>
     <Authors>TechSource Digital</Authors>

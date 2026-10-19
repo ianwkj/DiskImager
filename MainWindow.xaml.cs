@@ -327,6 +327,8 @@ public partial class MainWindow : Window
         await RefreshDisks();
     }
 
+    private void RescueUsb_Click(object sender, RoutedEventArgs e) => new RescueBuilderWindow(_log) { Owner = this }.ShowDialog();
+
     private void BrowseFiles_Click(object sender, RoutedEventArgs e)
     {
         var img = SelectedImage();

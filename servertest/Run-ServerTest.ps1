@@ -12,6 +12,9 @@
   "When done: Shut down": this script waits for the VM to turn itself off, then starts it again.
   Run it again any time to re-test (the VM is reused; add -Rebuild to start from a fresh VM,
   -IncludeSystemDisk to also do the slow live backup of the server's C: drive).
+  The rescue test (on unless -SkipRescue) backs up C:, builds the rescue USB, boots a second VM from it with
+  Secure Boot on (it restores the C: backup onto a blank disk by itself), then boots a third VM from that
+  restored disk to prove Windows starts. It adds about 30 minutes.
   Remove everything afterwards with Remove-ServerTest.ps1.
 #>
 param(
@@ -19,8 +22,10 @@ param(
     [string]$IsoPath = "",
     [string]$Installer = "",
     [switch]$Rebuild,
-    [switch]$IncludeSystemDisk
+    [switch]$IncludeSystemDisk,
+    [switch]$SkipRescue
 )
+$IncludeRescue = -not $SkipRescue
 $ErrorActionPreference = 'Stop'
 $VmName = 'DiskImager-Test'
 $IsoUrl = 'https://go.microsoft.com/fwlink/p/?LinkID=2195280&clcid=0x409&culture=en-us&country=US'
@@ -144,6 +149,14 @@ if (-not $existing) {
 
 $pw = Get-Content $PwFile
 $cred = New-Object System.Management.Automation.PSCredential('Administrator', (ConvertTo-SecureString $pw -AsPlainText -Force))
+$RescueVhd = Join-Path $WorkDir 'DITest-Rescue.vhdx'
+$BackupsVhd = Join-Path $WorkDir 'DITest-Backups.vhdx'
+if ($IncludeRescue) {
+    # A small extra disk that plays the USB stick.
+    if (-not (Test-Path $RescueVhd)) { New-VHD -Path $RescueVhd -SizeBytes 3GB -Dynamic | Out-Null }
+    if (-not (Get-VMHardDiskDrive -VMName $VmName | Where-Object Path -eq $RescueVhd)) { Add-VMHardDiskDrive -VMName $VmName -Path $RescueVhd }
+}
+if (-not (Get-VMHardDiskDrive -VMName $VmName | Where-Object Path -eq $BackupsVhd)) { Add-VMHardDiskDrive -VMName $VmName -Path $BackupsVhd }
 if ((Get-VM $VmName).State -ne 'Running') { Step "Starting the VM"; Start-VM $VmName }
 
 # ---------------------------------------------------------------- 3. Wait for Windows to be ready
@@ -166,17 +179,20 @@ Invoke-Command -Session $session -ScriptBlock { Remove-Item C:\DITest -Recurse -
 Copy-Item -ToSession $session -Path $Installer -Destination 'C:\DITest\DiskImagerSetup.exe'
 Copy-Item -ToSession $session -Path (Join-Path $PSScriptRoot 'InVm-Tests.ps1') -Destination 'C:\DITest\InVm-Tests.ps1'
 
-Step "Running the tests inside the VM (about $(if ($IncludeSystemDisk) { '25' } else { '10' }) minutes)..."
+Step "Running the tests inside the VM (about $(if ($IncludeRescue) { '30' } elseif ($IncludeSystemDisk) { '25' } else { '10' }) minutes)..."
 # Error text printed by programs inside the VM must not stop this script: the report still has to be collected.
 $ErrorActionPreference = 'Continue'
 $script:ShutdownExpected = $false
-Invoke-Command -Session $session -ArgumentList $IncludeSystemDisk.IsPresent -ScriptBlock {
-    param($sys)
+$script:RescueReady = $false
+Invoke-Command -Session $session -ArgumentList $IncludeSystemDisk.IsPresent, $IncludeRescue -ScriptBlock {
+    param($sys, $rescue)
     $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'C:\DITest\InVm-Tests.ps1')
     if ($sys) { $a += '-IncludeSystemDisk' }
+    if ($rescue) { $a += '-IncludeRescue' }
     & powershell @a 2>&1
 } 2>&1 | ForEach-Object {
     if ("$_" -match 'SHUTDOWN-EXPECTED') { $script:ShutdownExpected = $true }
+    if ("$_" -match 'RESCUE-READY') { $script:RescueReady = $true }
     Write-Host "   $_"; Add-Content $HostLog "   $_"
 }
 Remove-PSSession $session -ErrorAction SilentlyContinue
@@ -191,6 +207,54 @@ if ($script:ShutdownExpected) {
     $secs = [int]((Get-Date) - $t0).TotalSeconds
     $hostChecks += "$(if ($off) { 'PASS' } else { 'FAIL' })  the server shut itself down after the backup (VM off $secs s after the tests finished)"
     if (-not $off) { Stop-VM $VmName -Force -ErrorAction SilentlyContinue }   # tidy restart either way
+
+    if ($IncludeRescue -and $script:RescueReady) {
+        # ---------------- 5b. Rescue USB: boot a second VM from it (Secure Boot on); it restores C: onto a blank disk by itself
+        Step "Rescue test: starting a second VM from the rescue USB (Secure Boot on). It restores the server's C: backup onto a blank disk..."
+        $TargetVhd = Join-Path $WorkDir 'DITest-RestoreTarget.vhdx'
+        $RescueVm = 'DiskImager-Rescue'; $BootVm = 'DiskImager-Restored'
+        foreach ($old in $RescueVm, $BootVm) { Get-VM $old -ErrorAction SilentlyContinue | ForEach-Object { Stop-VM $_.Name -TurnOff -Force -ErrorAction SilentlyContinue; Remove-VM $_.Name -Force } }
+        if (Test-Path $TargetVhd) { Remove-Item $TargetVhd -Force }
+        New-VHD -Path $TargetVhd -SizeBytes 60GB -Dynamic | Out-Null
+        Get-VMHardDiskDrive -VMName $VmName | Where-Object { $_.Path -in $RescueVhd, $BackupsVhd } | Remove-VMHardDiskDrive
+        New-VM -Name $RescueVm -Generation 2 -MemoryStartupBytes 4GB -NoVHD -Path $WorkDir | Out-Null
+        Set-VMProcessor $RescueVm -Count 2
+        Set-VMMemory $RescueVm -DynamicMemoryEnabled $false
+        Set-VM $RescueVm -AutomaticCheckpointsEnabled $false
+        foreach ($d in $RescueVhd, $BackupsVhd, $TargetVhd) { Add-VMHardDiskDrive -VMName $RescueVm -Path $d }
+        Set-VMFirmware $RescueVm -EnableSecureBoot On -SecureBootTemplate MicrosoftWindows
+        Set-VMFirmware $RescueVm -FirstBootDevice (Get-VMHardDiskDrive -VMName $RescueVm | Where-Object Path -eq $RescueVhd)
+        Start-VM $RescueVm
+        $t0 = Get-Date
+        while ((Get-VM $RescueVm).State -ne 'Off' -and (Get-Date) -lt $t0.AddMinutes(40)) { Start-Sleep -Seconds 10 }
+        $rescueOff = (Get-VM $RescueVm).State -eq 'Off'
+        $hostChecks += "$(if ($rescueOff) { 'PASS' } else { 'FAIL' })  a VM started from the rescue USB with Secure Boot on, ran the restore and turned itself off ($([int]((Get-Date) - $t0).TotalMinutes) min)"
+        if (-not $rescueOff) { Stop-VM $RescueVm -TurnOff -Force }
+        Remove-VM $RescueVm -Force
+
+        # ---------------- 5c. The real proof: boot a third VM from the restored disk
+        Step "Boot test: starting a VM from the disk the rescue USB restored..."
+        New-VM -Name $BootVm -Generation 2 -MemoryStartupBytes 4GB -VHDPath $TargetVhd -Path $WorkDir | Out-Null
+        Set-VMMemory $BootVm -DynamicMemoryEnabled $false
+        Set-VM $BootVm -AutomaticCheckpointsEnabled $false
+        Set-VMFirmware $BootVm -EnableSecureBoot Off   # same as the original server VM
+        Start-VM $BootVm
+        $bootSession = $null
+        $until = (Get-Date).AddMinutes(15)
+        while (-not $bootSession -and (Get-Date) -lt $until) {
+            try { $bootSession = New-PSSession -VMName $BootVm -Credential $cred -ErrorAction Stop } catch { Start-Sleep -Seconds 15 }
+        }
+        $bootedAs = if ($bootSession) { Invoke-Command -Session $bootSession -ScriptBlock { "$env:COMPUTERNAME, Windows on $((Get-Volume C).FileSystemLabel)" } } else { $null }
+        $hostChecks += "$(if ($bootSession) { 'PASS' } else { 'FAIL' })  Windows starts from the restored disk and accepts the same sign-in$(if ($bootedAs) { " ($bootedAs)" })"
+        if ($bootSession) { Remove-PSSession $bootSession }
+        Stop-VM $BootVm -TurnOff -Force -ErrorAction SilentlyContinue
+        Remove-VM $BootVm -Force
+        Remove-Item $TargetVhd -Force -ErrorAction SilentlyContinue
+        foreach ($d in $BackupsVhd, $RescueVhd) { Add-VMHardDiskDrive -VMName $VmName -Path $d }
+    } elseif ($IncludeRescue) {
+        $hostChecks += "FAIL  the rescue test didn't run (the rescue USB wasn't built)"
+    }
+
     Step "Starting the VM again to collect the results"
     Start-VM $VmName
 } else {
@@ -208,6 +272,15 @@ if ($script:ShutdownExpected) {
         (Get-Content C:\ProgramData\DiskImager\jobs.json -Raw | ConvertFrom-Json) | Where-Object Name -eq 'SrvNas' | Select-Object -ExpandProperty LastResult
     }
     $hostChecks += "$(if ($nas -like 'OK*') { 'PASS' } else { 'FAIL' })  after restarting, the NAS backup is still recorded as successful (result: $nas)"
+    if ($IncludeRescue -and $script:RescueReady) {
+        $rr = Invoke-Command -Session $session -ScriptBlock {
+            Update-HostStorageCache; Get-Disk | Where-Object IsOffline | ForEach-Object { Set-Disk -Number $_.Number -IsOffline $false }
+            $b = Get-Volume -FileSystemLabel BACKUPS -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($b -and (Test-Path "$($b.DriveLetter):\rescue-result.json")) { Get-Content "$($b.DriveLetter):\rescue-result.json" -Raw } else { $null }
+        }
+        $res = if ($rr) { $rr | ConvertFrom-Json } else { $null }
+        $hostChecks += "$(if ($res.Ok) { 'PASS' } else { 'FAIL' })  the rescue USB's unattended restore reported: $(if ($res) { $res.Message } else { 'no result file' })"
+    }
 }
 
 # ---------------------------------------------------------------- 6. Collect results
@@ -217,6 +290,11 @@ $ErrorActionPreference = 'Continue'
 Copy-Item -FromSession $session -Path 'C:\DITest\report.txt' -Destination $results -ErrorAction SilentlyContinue
 Copy-Item -FromSession $session -Path 'C:\ProgramData\DiskImager\Logs' -Destination $results -Recurse -ErrorAction SilentlyContinue
 Copy-Item -FromSession $session -Path 'C:\DITest\cli-*.txt' -Destination $results -ErrorAction SilentlyContinue
+$rescueLog = Invoke-Command -Session $session -ScriptBlock {
+    $b = Get-Volume -FileSystemLabel BACKUPS -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($b) { "$($b.DriveLetter):\rescue-log.txt" }
+}
+if ($rescueLog) { Copy-Item -FromSession $session -Path $rescueLog -Destination $results -ErrorAction SilentlyContinue }
 Remove-PSSession $session
 $ErrorActionPreference = 'Stop'
 

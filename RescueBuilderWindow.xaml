@@ -1,0 +1,46 @@
+<Window x:Class="DiskImager.RescueBuilderWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Create rescue USB" Width="640" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource AppBackground}" FontFamily="{StaticResource UiFont}" FontSize="13">
+    <StackPanel Margin="24,20,24,20">
+        <TextBlock Text="Create a rescue USB" Style="{StaticResource PageTitle}" FontSize="20"/>
+        <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap" Margin="0,2,0,14"
+                   Text="Start a PC from this USB stick to restore a backup when Windows won't start, or onto a brand-new drive. It's built from this PC's own Windows recovery system, so nothing needs downloading."/>
+
+        <GroupBox Header="Write to">
+            <StackPanel>
+                <RadioButton x:Name="UsbRadio" Content="A USB stick (everything on it will be erased)" IsChecked="True" Click="Target_Click"/>
+                <ListBox x:Name="UsbList" Margin="26,8,0,6" MaxHeight="180" ItemContainerStyle="{StaticResource CardItem}" HorizontalContentAlignment="Stretch"
+                         BorderThickness="0" Background="Transparent" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+                <TextBlock x:Name="NoUsbText" Margin="26,0,0,6" Style="{StaticResource Hint}" Text="No USB stick found. Plug one in (1 GB or larger), then click Refresh." Visibility="Collapsed"/>
+                <Button Content="Refresh" Tag="&#xE72C;" Click="Refresh_Click" HorizontalAlignment="Left" Margin="26,0,0,10"/>
+                <RadioButton x:Name="IsoRadio" Content="An ISO file (for servers, virtual machines, or burning to DVD)" Click="Target_Click"/>
+                <DockPanel x:Name="IsoPanel" Margin="26,8,0,0" IsEnabled="False">
+                    <Button DockPanel.Dock="Right" Content="Browse…" Tag="&#xE8B7;" Click="BrowseIso_Click" Margin="6,0,0,0"/>
+                    <TextBox x:Name="IsoBox"/>
+                </DockPanel>
+            </StackPanel>
+        </GroupBox>
+
+        <GroupBox Header="Options">
+            <StackPanel>
+                <CheckBox x:Name="DriversBox" IsChecked="True" Content="Include this PC's network and storage drivers"
+                          ToolTip="So the rescue system can see this kind of PC's disks and reach the NAS. Make the stick on a PC similar to the ones you'll rescue."/>
+                <TextBlock Style="{StaticResource Hint}" Margin="26,4,0,0" TextWrapping="Wrap"
+                           Text="Make the stick on a PC like the ones you'll rescue (same make or model), so their network card and disks work."/>
+            </StackPanel>
+        </GroupBox>
+
+        <StackPanel x:Name="ProgressPanel" Visibility="Collapsed" Margin="0,4,0,8">
+            <TextBlock x:Name="StatusText" TextWrapping="Wrap"/>
+            <ProgressBar Height="8" Margin="0,8,0,0" IsIndeterminate="True"/>
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
+            <Button x:Name="CreateButton" Content="Create" Tag="&#xE88E;" Style="{StaticResource Danger}" Click="Create_Click"/>
+            <Button x:Name="CloseButton" Content="Close" IsCancel="True" Margin="0"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

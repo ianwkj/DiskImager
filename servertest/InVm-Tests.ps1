@@ -9,8 +9,11 @@
   Run-ServerTest.ps1 watches for that, starts the VM again and collects the results.
 
   -IncludeSystemDisk adds the slow live backup of the running C: drive (about 5 GB).
+  -IncludeRescue also backs up C: and builds the rescue USB on the small "rescue" disk, with an unattended
+   restore of that backup; Run-ServerTest.ps1 then boots it in a second VM and boots the restored disk in a third.
 #>
-param([switch]$IncludeSystemDisk)
+param([switch]$IncludeSystemDisk, [switch]$IncludeRescue)
+if ($IncludeRescue) { $IncludeSystemDisk = [switch]$true }
 $ErrorActionPreference = 'Continue'
 $Report = 'C:\DITest\report.txt'
 Remove-Item $Report -ErrorAction SilentlyContinue
@@ -103,11 +106,12 @@ foreach ($d in $dataDisks) {
     if ($d.IsReadOnly) { Set-Disk -Number $d.Number -IsReadOnly $false }
 }
 $dataDisks = Get-Disk | Where-Object { $_.Number -ne 0 } | Sort-Object Number
-$eight = @($dataDisks | Where-Object { $_.Size -le 9GB })
+$eight = @($dataDisks | Where-Object { $_.Size -gt 7GB -and $_.Size -le 9GB })
 $SrcDisk = $eight[0]; $SameDisk = $eight[1]
 $BigDisk = $dataDisks | Where-Object { $_.Size -gt 9GB -and $_.Size -le 20GB } | Select-Object -First 1
 $BackupDisk = $dataDisks | Where-Object { $_.Size -gt 30GB } | Select-Object -First 1
-Info "Disks: source=$($SrcDisk.Number) same-size target=$($SameDisk.Number) bigger target=$($BigDisk.Number) backups=$($BackupDisk.Number)"
+$RescueDisk = $dataDisks | Where-Object { $_.Size -le 4GB } | Select-Object -First 1
+Info "Disks: source=$($SrcDisk.Number) same-size target=$($SameDisk.Number) bigger target=$($BigDisk.Number) backups=$($BackupDisk.Number) rescue=$($RescueDisk.Number)"
 
 function Reset-Disk($n) {
     if ((Get-Disk -Number $n).PartitionStyle -ne 'RAW') { Clear-Disk -Number $n -RemoveData -RemoveOEM -Confirm:$false }
@@ -134,7 +138,11 @@ New-Item -ItemType Directory -Force S:\Data | Out-Null
 for ($i = 1; $i -le 10; $i++) { Write-RandomFile "S:\Data\file$i.bin" 10 }
 1..50 | ForEach-Object { Set-Content "S:\Data\note$_.txt" "note $_ $(Get-Date -Format o)" }
 Write-RandomFile 'T:\tail.bin' 5
-function Manifest { Get-ChildItem S:\, T:\ -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch 'System Volume Information' } |
+# An excluded folder: its files must not be backed up, and it must come back empty after a restore.
+New-Item -ItemType Directory -Force S:\Data\Skip | Out-Null
+Write-RandomFile 'S:\Data\Skip\skip1.bin' 20
+Write-RandomFile 'S:\Data\Skip\skip2.bin' 20
+function Manifest { Get-ChildItem S:\, T:\ -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch 'System Volume Information' -and $_.FullName -notmatch '\\Data\\Skip\\' } |
     ForEach-Object { [pscustomobject]@{ Rel = $_.FullName.Substring(0, 1) + $_.FullName.Substring(2); Hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash } } }
 $Manifest1 = Manifest
 Info "Source data: $($Manifest1.Count) files"
@@ -173,9 +181,15 @@ function NewJob($name, $diskNumber, $dest) {
     }
 }
 $jobList = @()
-$jobList += NewJob 'SrvData' $SrcDisk.Number 'B:\Backups'
+$jobData = NewJob 'SrvData' $SrcDisk.Number 'B:\Backups'
+$jobData.ExcludeFolders = @('S:\Data\Skip')
+$jobData.ChangeTracking = $true
+$jobList += $jobData
 $jobNas = NewJob 'SrvNas' $SrcDisk.Number "$NasRoot\DiskImager"
 $jobNas.NetUser = $NasUser; $jobNas.NetPasswordProtected = $NasPwProtected
+# The NAS job's backups are encrypted with a password (stored for this PC the same way as the NAS login).
+$EncPw = 'Enc-' + [guid]::NewGuid().ToString('N').Substring(0, 12)
+$jobNas.EncryptionPasswordProtected = [Convert]::ToBase64String([Security.Cryptography.ProtectedData]::Protect([Text.Encoding]::UTF8.GetBytes($EncPw), $entropy, 'LocalMachine'))
 $jobList += $jobNas
 if ($IncludeSystemDisk) { $jobList += NewJob 'SrvSystem' 0 'B:\SystemBackups' }
 New-Item -ItemType Directory -Force 'C:\ProgramData\DiskImager' | Out-Null
@@ -220,6 +234,9 @@ Check ($null -ne $full) "full image file created ($($full.Name), $([math]::Round
 $log = AllLogs
 Check ($log -match 'S:+ snapshot created') "Windows snapshot (VSS) used for the data volume"
 Check ($log -match 'Image verified') "verify image when complete ran"
+$ex = [regex]::Match($log, 'S:+ excluding 1 folder\(s\), 2 files; saved ([\d.]+) MB')
+Check ($ex.Success -and [double]$ex.Groups[1].Value -ge 36) "excluded folder S:\Data\Skip left out of the backup ($(if ($ex.Success) { $ex.Groups[1].Value } else { 0 }) of its 40 MB not stored)"
+Check ($log -match 'S:+ change tracking map built') "change tracking map built from the snapshot"
 
 # Change some data, then an incremental.
 Write-RandomFile 'S:\Data\file3.bin' 10
@@ -230,6 +247,10 @@ $r = Run-Task 'SrvData - Incremental' 'SrvData' 15
 Check ($r -like 'OK*') "scheduled INCREMENTAL backup (result: $r)"
 $incr = Get-ChildItem B:\Backups -Filter '*_I001.dimg' | Select-Object -Last 1
 Check ($null -ne $incr -and $incr.Length -lt $full.Length / 2) "incremental is much smaller than the full ($([math]::Round($incr.Length / 1MB)) MB vs $([math]::Round($full.Length / 1MB)) MB)"
+$log = AllLogs
+$m = [regex]::Matches($log, "S:+ change tracking: ([\d,]+) block\(s\) may have changed; ([\d,]+) unchanged block\(s\) won't be read") | Select-Object -Last 1
+Check ($null -ne $m -and [int]($m.Groups[2].Value -replace ',', '') -gt 0) "change tracking: the incremental skipped unchanged blocks ($(if ($m) { "$($m.Groups[2].Value) skipped, $($m.Groups[1].Value) re-read" } else { 'not used' }))"
+Check ($log -match 'Change tracking check passed') "change tracking: the random spot-check of skipped blocks matched"
 
 # ---------------------------------------------------------------- 5. verify and restore (command line)
 $code = Run-Exe $Exe "--cli verify `"$($incr.FullName)`" --out C:\DITest\cli-verify.txt" 15
@@ -258,8 +279,15 @@ function Compare-Restored($diskNumber, $expected, $label) {
 }
 
 $code = Run-Exe $Exe "--cli restore `"$($incr.FullName)`" $($SameDisk.Number) --layout keep --new-ids --out C:\DITest\cli-restore-same.txt" 15
-Check ($code -eq 0) "restore incremental onto the same-size disk"
-if ($code -eq 0) { Compare-Restored $SameDisk.Number $Manifest2 'same-size restore' | Out-Null }
+Check ($code -eq 0) "restore incremental onto the same-size disk (incremental made with change tracking)"
+if ($code -eq 0) {
+    $parts = Compare-Restored $SameDisk.Number $Manifest2 'same-size restore'
+    if ($parts) {
+        $L = (Get-Partition -DiskNumber $SameDisk.Number -PartitionNumber $parts[0].PartitionNumber).DriveLetter
+        $skipItems = @(Get-ChildItem "${L}:\Data\Skip" -Force -ErrorAction SilentlyContinue)
+        Check ((Test-Path "${L}:\Data\Skip") -and $skipItems.Count -eq 0) "the excluded folder is restored, empty ($($skipItems.Count) items)"
+    }
+}
 
 $code = Run-Exe $Exe "--cli restore `"$($full.FullName)`" $($BigDisk.Number) --layout auto --new-ids --out C:\DITest\cli-restore-big.txt" 15
 Check ($code -eq 0) "restore full onto the bigger disk with automatic resize"
@@ -283,6 +311,24 @@ if ($IncludeSystemDisk) {
     Check ($log -match 'skipping .*pagefile\.sys') "page file skipped"
     $sys = Get-ChildItem B:\SystemBackups -Filter '*_F.dimg' | Select-Object -Last 1
     if ($sys) { Info "System image: $([math]::Round($sys.Length / 1GB, 2)) GB (Windows uses $([math]::Round(((Get-Volume C).Size - (Get-Volume C).SizeRemaining) / 1GB, 1)) GB)" }
+
+    if ($IncludeRescue -and $RescueDisk) {
+        # Rescue USB on the small "rescue" disk, set to restore this backup by itself onto a blank 60 GB disk.
+        $auto = @{ ImageFolder = 'SystemBackups'; TargetSize = 60GB; ResultLabel = 'BACKUPS'; PowerOff = $true; Layout = 'auto' } | ConvertTo-Json
+        Set-Content C:\DITest\autotest.json $auto -Encoding ASCII
+        if ((Get-Disk -Number $RescueDisk.Number).PartitionStyle -ne 'RAW') { Clear-Disk -Number $RescueDisk.Number -RemoveData -RemoveOEM -Confirm:$false }
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        $code = Run-Exe $Exe "--cli make-rescue $($RescueDisk.Number) --autotest C:\DITest\autotest.json --out C:\DITest\cli-rescue.txt" 60
+        Check ($code -eq 0) "rescue USB built on the rescue disk ($([int]$sw.Elapsed.TotalMinutes) min, exit code $code)"
+        if ($code -ne 0) { Diagnose 'make-rescue' }
+        $rv = Get-Volume -FileSystemLabel DIRESCUE -ErrorAction SilentlyContinue | Select-Object -First 1
+        Check ($rv -and (Test-Path "$($rv.DriveLetter):\sources\boot.wim") -and (Test-Path "$($rv.DriveLetter):\EFI\Boot\bootx64.efi") -and (Test-Path "$($rv.DriveLetter):\EFI\Microsoft\Boot\BCD")) "rescue stick has the boot files and the rescue system"
+        $code = Run-Exe $Exe "--cli make-rescue --iso C:\DITest\rescue.iso --no-drivers --out C:\DITest\cli-rescue-iso.txt" 60
+        $iso = Get-Item C:\DITest\rescue.iso -ErrorAction SilentlyContinue
+        Check ($code -eq 0 -and $iso -and $iso.Length -gt 200MB) "rescue ISO created ($(if ($iso) { [math]::Round($iso.Length / 1MB) } else { 0 }) MB)"
+        Remove-Item C:\DITest\rescue.iso -ErrorAction SilentlyContinue
+        Write-Host "RESCUE-READY"
+    }
 } else {
     Info "Live backup of the Windows disk (C:) skipped to keep the run short; add -IncludeSystemDisk to include it."
 }
@@ -299,9 +345,12 @@ if ($nasFull) {
     net use $NasRoot /user:$NasUser $NasPw 2>$null | Out-Null
     $unc = "$NasRoot\DiskImager\$($nasFull.Name)"
     Check (Test-Path $unc) "image visible over the network after logging on to the NAS"
-    $code = Run-Exe $Exe "--cli verify `"$unc`" --out C:\DITest\cli-verify-nas.txt" 15
-    Check ($code -eq 0) "Verify image read from the NAS"
-    $code = Run-Exe $Exe "--cli restore `"$unc`" $($SameDisk.Number) --layout keep --new-ids --out C:\DITest\cli-restore-nas.txt" 15
+    $code = Run-Exe $Exe "--cli verify `"$unc`" --out C:\DITest\cli-verify-nas-nopw.txt" 15
+    $said = Get-Content C:\DITest\cli-verify-nas-nopw.txt -Raw -ErrorAction SilentlyContinue
+    Check ($code -eq 1 -and $said -match 'encrypted') "the NAS backup is encrypted: it can't be read without the password"
+    $code = Run-Exe $Exe "--cli verify `"$unc`" --password $EncPw --out C:\DITest\cli-verify-nas.txt" 15
+    Check ($code -eq 0) "Verify image read from the NAS (with the password)"
+    $code = Run-Exe $Exe "--cli restore `"$unc`" $($SameDisk.Number) --layout keep --new-ids --password $EncPw --out C:\DITest\cli-restore-nas.txt" 15
     Check ($code -eq 0) "restore from the NAS onto the same-size disk"
     if ($code -eq 0) { Compare-Restored $SameDisk.Number $Manifest2 'restore from NAS' | Out-Null }
     net use $NasRoot /delete /y 2>$null | Out-Null

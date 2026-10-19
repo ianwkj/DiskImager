@@ -73,7 +73,30 @@ public static class Cli
                 return 0;
             }
 
-            Say("Usage: --cli verify <image> | --cli restore <image> <disk number> [--layout auto|keep] [--new-ids] [--password <pw>] [--out <file>]");
+            // make-rescue <disk number> | make-rescue --iso <file>   [--no-drivers] [--autotest <json>]
+            if (a.Count >= 2 && a[0] == "make-rescue")
+            {
+                int iso = a.IndexOf("--iso");
+                int at = a.IndexOf("--autotest");
+                DiskInfo? usb = null;
+                if (iso < 0)
+                {
+                    if (!int.TryParse(a[1], out int usbNumber)) throw new ArgumentException("Give the USB disk number, or --iso <file>.");
+                    usb = DiskEnumerator.GetDisks().FirstOrDefault(d => d.Number == usbNumber) ?? throw new InvalidOperationException($"Disk {usbNumber} not found.");
+                }
+                RescueMedia.Build(new RescueMedia.Options
+                {
+                    UsbDisk = usb,
+                    IsoPath = iso >= 0 && iso + 1 < a.Count ? a[iso + 1] : null,
+                    AddDrivers = !a.Contains("--no-drivers"),
+                    AutotestFile = at >= 0 && at + 1 < a.Count ? a[at + 1] : null,
+                }, null, CancellationToken.None, log);
+                Say("RESCUE OK");
+                return 0;
+            }
+
+            Say("Usage: --cli verify <image> | --cli restore <image> <disk number> [--layout auto|keep] [--new-ids] [--password <pw>] [--out <file>]" +
+                " | --cli make-rescue <disk number>|--iso <file> [--no-drivers]");
             return 1;
         }
         catch (Exception ex)

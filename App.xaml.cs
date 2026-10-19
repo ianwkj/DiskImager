@@ -14,6 +14,14 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // Rescue USB (Windows PE): the restore menu.
+        if (e.Args.Contains("--rescue"))
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            Shutdown(Rescue.Run());
+            return;
+        }
+
         // Scheduled runs (as SYSTEM): no window, just do the job and exit.
         if (e.Args.Contains("--run-job"))
         {
