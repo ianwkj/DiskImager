@@ -11,10 +11,17 @@ namespace DiskImager.Rescue;
 public static class Program
 {
     public static IRescuePlatform Platform { get; private set; } = null!;
+    public static string? AutotestShots { get; private set; }
+    public static string? AutotestManifest { get; private set; }
+    public static string AutotestPassword { get; private set; } = "";
 
     [STAThread]
     public static int Main(string[] args)
     {
+        string? Arg(string name) { int i = Array.IndexOf(args, name); return i >= 0 && i + 1 < args.Length ? args[i + 1] : null; }
+        AutotestShots = Arg("--autotest");
+        AutotestManifest = Arg("--manifest");
+        AutotestPassword = Arg("--password") ?? "";
         int demo = Array.IndexOf(args, "--demo");
         if (demo >= 0 && demo + 1 < args.Length)
         {

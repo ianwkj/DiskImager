@@ -12,3 +12,8 @@ installer/DiskImagerSetup/payload/
 
 # Test leftovers
 TestResults/
+
+# Linux rescue image build output
+rescue/live/build/
+*.iso
+
