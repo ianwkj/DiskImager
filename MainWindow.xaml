@@ -192,7 +192,7 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel MaxWidth="820" HorizontalAlignment="Left">
                         <TextBlock Text="Settings" Style="{StaticResource PageTitle}"/>
-                        <TextBlock Text="Email notifications and information about DiskImager." Style="{StaticResource PageSubtitle}"/>
+                        <TextBlock Text="Email notifications, updates and information about DiskImager." Style="{StaticResource PageSubtitle}"/>
 
                         <GroupBox Header="Email notifications">
                             <StackPanel>
@@ -250,6 +250,18 @@
                                     <Button Content="Save" Tag="&#xE74E;" Style="{StaticResource Primary}" Click="SaveEmail_Click"/>
                                     <Button Content="Send test email" Tag="&#xE715;" Click="TestEmail_Click"/>
                                     <TextBlock x:Name="EmailStatus" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" MaxWidth="420"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Updates">
+                            <StackPanel Margin="0,4,0,0">
+                                <CheckBox x:Name="AutoUpdateBox" Content="Check for updates when DiskImager opens" Click="AutoUpdate_Click"/>
+                                <TextBlock Style="{StaticResource Hint}" Margin="26,4,0,0" TextWrapping="Wrap"
+                                           Text="A new version installs itself after a 10-second countdown unless you click Later. Never while a backup is running."/>
+                                <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                                    <Button x:Name="CheckUpdateButton" Content="Check for updates now" Tag="&#xE895;" Click="CheckUpdates_Click"/>
+                                    <TextBlock x:Name="UpdateStatus" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" MaxWidth="460"/>
                                 </StackPanel>
                             </StackPanel>
                         </GroupBox>

@@ -12,7 +12,7 @@ A simple Windows disk imaging tool, loosely modelled on Macrium Reflect. Powered
 | **Scheduled backups** | Jobs with separate **Full** and **Incremental** schedules (daily, weekly or monthly). Each job also has an **after-completion action** (shut down, restart, sleep or hibernate), **wake to run**, and a **retention** setting that keeps the newest N full sets and deletes older ones after a successful backup. |
 | **Restore** | Point it at a local folder, another drive, or a NAS/SMB share (with a username and password). Pick a backup point at the top and a target drive from the connected-drives list below, then choose **Restore to selected drive**. **Verify image** re-checks every block's checksum. |
 | **Resize (restore and clone)** | The target drive can be smaller or larger than the source. **Resize automatically** grows or shrinks the main NTFS partition (usually C:) to fill the drive and moves the partitions after it, such as Recovery. **Choose sizes myself** lets you set each NTFS partition's size. Before and after bars preview the result. |
-| **Settings** | SMTP email settings: server, port, security, login, from and to addresses. Includes a **Send test email** button. Each job chooses when to email: never, only if it fails (the default), or every time. Failure emails include the error and the last 40 log lines. |
+| **Settings** | SMTP email settings: server, port, security, login, from and to addresses. Includes a **Send test email** button. Each job chooses when to email: never, only if it fails (the default), or every time. Failure emails include the error and the last 40 log lines. **Updates:** check for updates when DiskImager opens (on by default) and **Check for updates now**. |
 | **Log** | Live log. Scheduled runs also write to `C:\ProgramData\DiskImager\Logs`. |
 
 ## How it works
@@ -25,6 +25,12 @@ A simple Windows disk imaging tool, loosely modelled on Macrium Reflect. Powered
 - **Partitions that can't be resized:** EFI, FAT and MSR partitions keep their size but can be moved. Only NTFS can shrink; NTFS and ReFS can grow.
 - **Scheduling:** Jobs are stored in `C:\ProgramData\DiskImager\jobs.json` and run by Windows Task Scheduler as SYSTEM, under the `DiskImager` folder in Task Scheduler. The program copies itself to `C:\Program Files\DiskImager` so schedules keep working if you move the downloaded exe.
 - **NAS passwords:** Encrypted with Windows DPAPI at machine level, because the scheduled task runs as SYSTEM and must be able to read them.
+- **Automatic updates:** When DiskImager opens, it checks this repository's latest GitHub release.
+  - **Which releases count:** only a release with `DiskImagerSetup-x.y.z.exe` and its `.sig` signature is used.
+  - **The pop-up:** if the release is newer, a pop-up counts down 10 seconds. If nobody clicks **Later**, DiskImager downloads the installer and checks its signature. The installer then runs silently, waits for DiskImager to close and reopens it.
+  - **When it doesn't update:** never while a backup, restore or clone is running. If an update didn't install, the next pop-up asks instead of retrying by itself.
+  - **Signing:** the signature is checked against the public key in `Core/UpdateKey.cs`. `build-release.ps1` signs each installer with the matching private key, kept outside the repository at `%USERPROFILE%\.diskimager\update-signing-key.xml`.
+  - **Keep a backup of that key.** Without it, installed copies won't accept new releases.
 
 ## Limitations
 
@@ -48,7 +54,9 @@ Needs the .NET 10 SDK.
 ```
 dotnet build -c Release
 dotnet run --project tests\SmokeTest -- <scratch folder>    # end-to-end engine test on fake disks
-.\build-release.ps1 -Version 1.2.0                          # app + installer into releases\
+.\build-release.ps1 -Version 1.2.0                          # app + signed installer into releases\
+.\build-release.ps1 -Version 1.2.0 -Publish -NotesFile notes.md   # ...and publish it as a GitHub release (auto-update)
+dotnet run --project tests\SmokeTest -- --update publish\DiskImager.exe releases\DiskImagerSetup-1.2.0.exe <shots>   # update pop-up, not as admin
 ```
 
 **Windows Server test:** `servertest\Run-ServerTest.ps1` (run as administrator, Hyper-V required) builds a Windows Server 2022 VM and tests:

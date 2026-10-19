@@ -48,6 +48,23 @@ static class SetupTest
             finally { try { if (!p.HasExited) p.Kill(); } catch { } }
         }
 
+        // Round 3: the way the auto-updater runs setup: silent, waiting for the open DiskImager to close, then reopening it.
+        {
+            using var stillOpen = Process.Start(new ProcessStartInfo("powershell.exe", "-NoProfile -Command Start-Sleep -Seconds 4")
+                { UseShellExecute = false, CreateNoWindow = true })!;
+            var sw = Stopwatch.StartNew();
+            using var silent = Process.Start(new ProcessStartInfo(setupExe, $"/silent /sandbox \"{sandbox}\" /waitpid {stillOpen.Id} /relaunch")
+                { UseShellExecute = false })!;
+            bool done = silent.WaitForExit(120000);
+            bool waited = stillOpen.HasExited;
+            Check(done && silent.ExitCode == 0, $"update mode: silent install finished (exit code {(done ? silent.ExitCode : -1)}, {sw.Elapsed.TotalSeconds:0.0} s)");
+            Check(waited, "update mode: setup waited for the open DiskImager to close before installing");
+            Check(File.Exists(Path.Combine(sandbox, "Program Files", "DiskImager", "relaunched.txt")), "update mode: DiskImager is reopened afterwards");
+            string setupLog = Path.Combine(sandbox, "DiskImagerSetup.log");
+            string logText = File.Exists(setupLog) ? File.ReadAllText(setupLog) : "";
+            Check(logText.Contains("Waiting for DiskImager") && logText.Contains("Installed."), "update mode: setup log records the wait and the install");
+        }
+
         string exe = Path.Combine(sandbox, "Program Files", "DiskImager", "DiskImager.exe");
         Check(File.Exists(exe) && FileVersionInfo.GetVersionInfo(exe).FileVersion?.StartsWith(version) == true, $"DiskImager.exe installed (version {version})");
         Check(File.Exists(Path.Combine(sandbox, "Start Menu", "DiskImager.lnk")), "Start menu shortcut created");

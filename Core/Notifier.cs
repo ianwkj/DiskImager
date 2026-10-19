@@ -24,10 +24,19 @@ public sealed class EmailSettings
     public string To { get; set; } = "";
 }
 
+public sealed class UpdateSettings
+{
+    /// <summary>Look for a new version on GitHub each time DiskImager opens.</summary>
+    public bool CheckOnStartup { get; set; } = true;
+    public string? LastAttemptVersion { get; set; }
+    public DateTime LastAttemptUtc { get; set; }
+}
+
 /// <summary>Program-wide settings in %ProgramData%\DiskImager\settings.json (shared with scheduled runs).</summary>
 public sealed class AppSettings
 {
     public EmailSettings Email { get; set; } = new();
+    public UpdateSettings Updates { get; set; } = new();
 
     private static string FilePath => Path.Combine(JobStore.DataFolder, "settings.json");
 

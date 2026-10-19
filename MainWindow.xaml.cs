@@ -42,6 +42,7 @@ public partial class MainWindow : Window
         Loaded += async (_, _) =>
         {
             LoadEmailSettings();
+            AutoUpdateBox.IsChecked = AppSettings.Load().Updates.CheckOnStartup;
             _ = Task.Run(() =>
             {
                 try { TaskSchedulerService.RefreshInstalledCopy(_log); }
@@ -49,6 +50,7 @@ public partial class MainWindow : Window
             });
             await RefreshDisks();
             RefreshJobs();
+            if (AutoUpdateBox.IsChecked == true) await CheckForUpdates(automatic: true);
         };
     }
 
@@ -351,6 +353,69 @@ public partial class MainWindow : Window
     {
         Directory.CreateDirectory(Logger.LogFolder);
         Process.Start("explorer.exe", Logger.LogFolder);
+    }
+
+    // ---------------------------------------------------------------- Updates
+
+    private bool _updateWindowOpen;
+
+    /// <summary>Automatic (window opened): quiet unless there's an update, then a 10-second countdown.
+    /// Manual (Check now): reports the result and asks without a countdown.</summary>
+    private async Task CheckForUpdates(bool automatic)
+    {
+        if (_updateWindowOpen) return;
+        CheckUpdateButton.IsEnabled = false;
+        if (!automatic) UpdateStatus.Text = "Checking…";
+        UpdateInfo? update;
+        try
+        {
+            update = await Updater.CheckAsync(_log);
+        }
+        catch (Exception ex)
+        {
+            // Offline or GitHub unreachable: not worth interrupting anyone for.
+            if (automatic) _log.Warn("Couldn't check for updates: " + ex.Message);
+            else UpdateStatus.Text = "Couldn't check for updates: " + ex.Message;
+            return;
+        }
+        finally
+        {
+            CheckUpdateButton.IsEnabled = true;
+        }
+
+        if (update == null)
+        {
+            if (!automatic) UpdateStatus.Text = $"You have the latest version ({Updater.Current}).";
+            return;
+        }
+        _log.Info($"Update available: DiskImager {update.Version} (you have {Updater.Current}).");
+        UpdateStatus.Text = $"Version {update.Version} is available.";
+        if (automatic && UpdateBlockedReason() != null) return; // ask again next time
+
+        // After a failed attempt, ask rather than retrying by itself.
+        bool countdown = automatic && !Updater.LastAttemptFailed(update.Version);
+        var w = new UpdateWindow(update, countdown ? TimeSpan.FromSeconds(10) : null, UpdateBlockedReason, _log) { Owner = this };
+        _updateWindowOpen = true;
+        w.ShowDialog();
+        _updateWindowOpen = false;
+        if (w.Installing) Application.Current.Shutdown();
+    }
+
+    /// <summary>Why updating would be a bad idea right now, or null.</summary>
+    private string? UpdateBlockedReason()
+    {
+        if (_cts != null) return "a backup, restore or clone is running in this window.";
+        if (Uninstaller.BackupInProgress()) return "a scheduled backup is running.";
+        return null;
+    }
+
+    private async void CheckUpdates_Click(object sender, RoutedEventArgs e) => await CheckForUpdates(automatic: false);
+
+    private void AutoUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        var s = AppSettings.Load();
+        s.Updates.CheckOnStartup = AutoUpdateBox.IsChecked == true;
+        s.Save();
     }
 
     // ---------------------------------------------------------------- Settings

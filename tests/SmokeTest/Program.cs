@@ -8,6 +8,7 @@ if (args.Length >= 3 && args[0] == "--ui") return UiTest.Run(args[1], args[2]);
 if (args.Length >= 3 && args[0] == "--layout") return UiTest.LayoutTest(args[1], args[2]);
 if (args.Length >= 4 && args[0] == "--setup") return SetupTest.Run(args[1], args[2], args[3]);
 if (args.Length >= 4 && args[0] == "--restore") return UiTest.RestoreTest(args[1], args[2], args[3]);
+if (args.Length >= 4 && args[0] == "--update") return UpdateUiTest.Run(args[1], args[2], args[3]);
 
 string work = args.Length > 0 ? args[0] : Path.Combine(Path.GetTempPath(), "diskimager-smoke");
 if (Directory.Exists(work)) Directory.Delete(work, true);
@@ -621,6 +622,9 @@ using (var awake = new KeepAwake("DiskImager smoke test", log))
 
 // ---- Password protection round-trip.
 Check(JobStore.Unprotect(JobStore.Protect("s3cret!")) == "s3cret!", "NAS password encrypt/decrypt");
+
+// ---- Auto-update: version tags, signatures, and a fake GitHub serving releases.
+await UpdaterTest.Run(work, log, Check);
 
 Console.WriteLine(failures == 0 ? "\nALL TESTS PASSED" : $"\n{failures} TEST(S) FAILED");
 return failures == 0 ? 0 : 1;
