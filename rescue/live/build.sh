@@ -52,6 +52,12 @@ cp -r "$HERE/config/." config/
 chmod +x config/hooks/live/*.hook.chroot config/includes.chroot/usr/local/bin/* config/includes.chroot/usr/local/sbin/* config/includes.chroot/opt/diskimager/diskimager-rescue
 lb build
 
+# Sanity checks on the finished system: things that only show up at boot otherwise.
+for f in usr/lib/user-setup/user-setup-apply usr/lib/live/config/0030-user-setup etc/lightdm/lightdm.conf.d/50-techsource.conf \
+         usr/share/xsessions/xfce.desktop opt/diskimager/diskimager-rescue usr/bin/tailscale usr/bin/firefox-esr; do
+    test -e "chroot/$f" || { echo "Missing from the image: /$f"; exit 1; }
+done
+
 ISO=$(ls -1 *.iso | head -1)
 mv "$ISO" "$OUT/TechSource-Rescue-$VERSION.iso"
 ls -l "$OUT"
