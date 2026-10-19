@@ -2,6 +2,12 @@
 live-boot
 live-config
 live-config-systemd
+# live-config only "recommends" these, and recommends are off: without user-setup no user is created
+user-setup
+live-tools
+locales
+keyboard-configuration
+console-setup
 cryptsetup
 cryptsetup-initramfs
 
