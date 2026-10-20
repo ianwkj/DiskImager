@@ -293,14 +293,23 @@
                                 <StackPanel Orientation="Horizontal">
                                     <CheckBox x:Name="HealthMonitorBox" Content="Check this PC's drives in the background, every" VerticalAlignment="Center"
                                               Click="HealthMonitorBox_Click"/>
-                                    <ComboBox x:Name="HealthEveryBox" Width="110" Margin="10,0,0,0">
+                                    <ComboBox x:Name="HealthEveryBox" Width="110" Margin="10,0,0,0" SelectionChanged="HealthWhen_Changed">
                                         <ComboBoxItem>1 hour</ComboBoxItem>
                                         <ComboBoxItem>1 day</ComboBoxItem>
                                         <ComboBoxItem>1 week</ComboBoxItem>
                                         <ComboBoxItem>1 month</ComboBoxItem>
                                     </ComboBox>
+                                    <StackPanel x:Name="HealthWhenPanel" Orientation="Horizontal">
+                                        <TextBlock x:Name="HealthOnText" Text="on" VerticalAlignment="Center" Margin="10,0,8,0"/>
+                                        <ComboBox x:Name="HealthDayBox" Width="120" SelectionChanged="HealthWhen_Changed"/>
+                                        <ComboBox x:Name="HealthMonthDayBox" Width="76" SelectionChanged="HealthWhen_Changed"/>
+                                        <TextBlock x:Name="HealthMonthDayText" Text="of each month" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                        <TextBlock Text="at" VerticalAlignment="Center" Margin="10,0,8,0"/>
+                                        <TextBox x:Name="HealthTimeBox" Width="64" HorizontalContentAlignment="Center" TextChanged="HealthWhen_Changed"/>
+                                    </StackPanel>
                                 </StackPanel>
-                                <TextBlock Style="{StaticResource Hint}" Margin="26,6,0,0" TextWrapping="Wrap"
+                                <TextBlock x:Name="HealthWhenText" Margin="26,8,0,0" TextWrapping="Wrap" Foreground="#334155"/>
+                                <TextBlock Style="{StaticResource Hint}" Margin="26,4,0,0" TextWrapping="Wrap"
                                            Text="Runs quietly as a Windows scheduled task, even when nobody is signed in. Longer intervals use less, but a failing drive is noticed later. The Disk health page always checks right away."/>
 
                                 <StackPanel x:Name="HealthAlertsPanel" Margin="0,16,0,0">

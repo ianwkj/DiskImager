@@ -80,8 +80,8 @@ public static class TaskSchedulerService
             RunSchtasks($"/Delete /TN \"{HealthTask}\" /F", throwOnError: false);
             return;
         }
-        CreateFromXml(HealthTask, BuildHealthXml(EnsureInstalled(log), h.Every));
-        log.Info($"Disk health is checked {HealthSettings.EveryText(h.Every)}.");
+        CreateFromXml(HealthTask, BuildHealthXml(EnsureInstalled(log), h));
+        log.Info($"Disk health is checked {h.ScheduleText()}.");
     }
 
     /// <summary>Removes the missed-backup check, tray helper, report and disk health tasks (used by uninstall).</summary>
@@ -95,11 +95,14 @@ public static class TaskSchedulerService
 
     /// <summary>
     /// The background disk health check, as SYSTEM. Hourly: every hour from 5 minutes after startup. Daily, weekly
-    /// and monthly: at 09:00 (on Mondays / the 1st), run as soon as possible if the PC was off at that time.
+    /// and monthly: at the chosen time (and day), run as soon as possible if the PC was off at that time.
     /// </summary>
-    public static string BuildHealthXml(string exe, HealthInterval every)
+    public static string BuildHealthXml(string exe, HealthSettings h)
     {
-        string today = $"{DateTime.Today:yyyy-MM-dd}T09:00:00";
+        if (!TimeSpan.TryParse(h.Time, out var t)) t = new TimeSpan(9, 0, 0);
+        string today = $"{DateTime.Today:yyyy-MM-dd}T{t:hh\\:mm}:00";
+        int dom = Math.Clamp(h.DayOfMonth, 1, 28);
+        var every = h.Every;
         string triggers = every switch
         {
             HealthInterval.Day => $"""
@@ -113,14 +116,14 @@ public static class TaskSchedulerService
                 <CalendarTrigger>
                   <StartBoundary>{today}</StartBoundary>
                   <Enabled>true</Enabled>
-                  <ScheduleByWeek><DaysOfWeek><Monday /></DaysOfWeek><WeeksInterval>1</WeeksInterval></ScheduleByWeek>
+                  <ScheduleByWeek><DaysOfWeek><{h.Day} /></DaysOfWeek><WeeksInterval>1</WeeksInterval></ScheduleByWeek>
                 </CalendarTrigger>
                 """,
             HealthInterval.Month => $"""
                 <CalendarTrigger>
                   <StartBoundary>{today}</StartBoundary>
                   <Enabled>true</Enabled>
-                  <ScheduleByMonth><DaysOfMonth><Day>1</Day></DaysOfMonth><Months><January /><February /><March /><April /><May /><June /><July /><August /><September /><October /><November /><December /></Months></ScheduleByMonth>
+                  <ScheduleByMonth><DaysOfMonth><Day>{dom}</Day></DaysOfMonth><Months><January /><February /><March /><April /><May /><June /><July /><August /><September /><October /><November /><December /></Months></ScheduleByMonth>
                 </CalendarTrigger>
                 """,
             _ => $"""
@@ -139,7 +142,7 @@ public static class TaskSchedulerService
             <?xml version="1.0" encoding="UTF-16"?>
             <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
               <RegistrationInfo>
-                <Description>DiskImager: checks the health of this PC's drives {HealthSettings.EveryText(every)} and emails you if it changes.</Description>
+                <Description>DiskImager: checks the health of this PC's drives {h.ScheduleText()} and emails you if it changes.</Description>
               </RegistrationInfo>
               <Triggers>
                 {triggers}

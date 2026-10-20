@@ -125,23 +125,33 @@ static class HealthTest
         // ---- Scheduled task XML for each interval
         foreach (var every in Enum.GetValues<HealthInterval>())
         {
-            string xml = TaskSchedulerService.BuildHealthXml(@"C:\Program Files\DiskImager\DiskImager.exe", every);
+            var hs = new HealthSettings { Every = every, Day = DayOfWeek.Wednesday, DayOfMonth = 15, Time = "18:30" };
+            string xml = TaskSchedulerService.BuildHealthXml(@"C:\Program Files\DiskImager\DiskImager.exe", hs);
             XDocument doc;
             try { doc = XDocument.Parse(xml.Replace("encoding=\"UTF-16\"", "")); }
             catch (Exception ex) { check(false, $"Health task XML ({every}) is well-formed: {ex.Message}"); continue; }
             XNamespace ns = "http://schemas.microsoft.com/windows/2004/02/mit/task";
             var trig = doc.Root!.Element(ns + "Triggers")!;
+            bool at1830 = trig.Descendants(ns + "StartBoundary").Single().Value.EndsWith("T18:30:00");
             bool ok = every switch
             {
                 HealthInterval.Hour => trig.Descendants(ns + "Interval").Single().Value == "PT1H" && trig.Element(ns + "BootTrigger") != null,
-                HealthInterval.Day => trig.Descendants(ns + "DaysInterval").Single().Value == "1",
-                HealthInterval.Week => trig.Descendants(ns + "Monday").Any(),
-                _ => trig.Descendants(ns + "Day").Single().Value == "1" && trig.Descendants(ns + "December").Any(),
+                HealthInterval.Day => trig.Descendants(ns + "DaysInterval").Single().Value == "1" && at1830,
+                HealthInterval.Week => trig.Descendants(ns + "Wednesday").Any() && !trig.Descendants(ns + "Monday").Any() && at1830,
+                _ => trig.Descendants(ns + "Day").Single().Value == "15" && trig.Descendants(ns + "December").Any() && at1830,
             };
             check(ok && doc.Descendants(ns + "Arguments").Single().Value == "--health-check"
                      && doc.Descendants(ns + "UserId").Single().Value == "S-1-5-18",
-                $"Health task XML ({HealthSettings.Describe(every)}) is well-formed, runs as SYSTEM with --health-check");
+                $"Health task XML ({HealthSettings.Describe(every)}) uses the chosen day and time, runs as SYSTEM with --health-check");
         }
+        check(new HealthSettings { Every = HealthInterval.Week, Day = DayOfWeek.Friday, Time = "17:00" }.WhenText()
+                  == "Checks every Friday at 17:00, or soon after the PC is next turned on if it was off then."
+              && new HealthSettings { Every = HealthInterval.Month, DayOfMonth = 22, Time = "09:00" }.WhenText().StartsWith("Checks on the 22nd of every month at 09:00")
+              && new HealthSettings().WhenText() == "Checks 5 minutes after the PC starts, then every hour while it's on.",
+            "Health schedule is described in plain words (every Friday at 17:00; the 22nd; hourly)");
+        check(HealthSettings.Ordinal(1) == "1st" && HealthSettings.Ordinal(2) == "2nd" && HealthSettings.Ordinal(3) == "3rd"
+              && HealthSettings.Ordinal(11) == "11th" && HealthSettings.Ordinal(12) == "12th" && HealthSettings.Ordinal(13) == "13th"
+              && HealthSettings.Ordinal(21) == "21st" && HealthSettings.Ordinal(23) == "23rd", "Day-of-month names: 1st, 2nd, 3rd, 11th–13th, 21st, 23rd");
 
         // ---- Email
         {

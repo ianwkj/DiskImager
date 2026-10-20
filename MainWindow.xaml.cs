@@ -544,8 +544,8 @@ public partial class MainWindow : Window
 
             var state = HealthMonitor.LoadState();
             string bg = !settings.Monitor ? "Background checks are off (Settings → Disk health monitoring)."
-                : state.LastCheckUtc is DateTime last ? $"Checked in the background {HealthSettings.EveryText(settings.Every)}; last check {last.ToLocalTime():d MMM, HH:mm}."
-                : $"Checked in the background {HealthSettings.EveryText(settings.Every)}.";
+                : state.LastCheckUtc is DateTime last ? $"Checked in the background {settings.ScheduleText()}; last check {last.ToLocalTime():d MMM, HH:mm}."
+                : $"Checked in the background {settings.ScheduleText()}.";
             int attention = _health.Count(d => d.Status is HealthStatus.Caution or HealthStatus.Bad);
             HealthSubtitle.Text = (attention == 0 ? "Each drive's own health readings (SMART). " : $"{attention} drive{(attention == 1 ? " needs" : "s need")} attention. ") + bg;
         }
@@ -573,6 +573,13 @@ public partial class MainWindow : Window
     {
         var h = AppSettings.Load().Health;
         HealthMonitorBox.IsChecked = h.Monitor;
+        foreach (var d in new[] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday })
+            HealthDayBox.Items.Add(new ComboBoxItem { Content = d.ToString(), Tag = d });
+        for (int n = 1; n <= 28; n++) HealthMonthDayBox.Items.Add(new ComboBoxItem { Content = HealthSettings.Ordinal(n), Tag = n });
+        HealthDayBox.SelectedIndex = ((int)h.Day + 6) % 7;
+        HealthMonthDayBox.SelectedIndex = Math.Clamp(h.DayOfMonth, 1, 28) - 1;
+        HealthTimeBox.Text = h.Time;
+        InputBehaviors.AttachTime(HealthTimeBox);
         HealthEveryBox.SelectedIndex = (int)h.Every;
         HealthStatusBox.IsChecked = h.EmailOnStatusChange;
         HealthLifeBox.IsChecked = h.EmailOnLowLife;
@@ -584,11 +591,35 @@ public partial class MainWindow : Window
         HealthSectorText.Text = h.BadSectorIncrease.ToString();
         foreach (var box in new[] { HealthLifeText, HealthHotSsdText, HealthHotHddText }) InputBehaviors.AttachNumber(box, 3);
         InputBehaviors.AttachNumber(HealthSectorText, 5);
+        _healthFormReady = true;
         HealthMonitorBox_Click(this, new RoutedEventArgs());
+        HealthWhen_Changed(this, new RoutedEventArgs());
     }
 
+    private bool _healthFormReady;
+
     private void HealthMonitorBox_Click(object sender, RoutedEventArgs e) =>
-        HealthEveryBox.IsEnabled = HealthAlertsPanel.IsEnabled = HealthMonitorBox.IsChecked == true;
+        HealthEveryBox.IsEnabled = HealthWhenPanel.IsEnabled = HealthAlertsPanel.IsEnabled = HealthMonitorBox.IsChecked == true;
+
+    /// <summary>Shows the day/time boxes that apply to the chosen interval and says exactly when the check runs.</summary>
+    private void HealthWhen_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_healthFormReady) return;
+        var every = (HealthInterval)Math.Max(0, HealthEveryBox.SelectedIndex);
+        HealthWhenPanel.Visibility = every == HealthInterval.Hour ? Visibility.Collapsed : Visibility.Visible;
+        HealthOnText.Visibility = HealthDayBox.Visibility = every == HealthInterval.Week ? Visibility.Visible : Visibility.Collapsed;
+        if (every == HealthInterval.Month) HealthOnText.Visibility = Visibility.Visible;
+        HealthOnText.Text = every == HealthInterval.Month ? "on the" : "on";
+        HealthMonthDayBox.Visibility = HealthMonthDayText.Visibility = every == HealthInterval.Month ? Visibility.Visible : Visibility.Collapsed;
+        string time = InputBehaviors.CompleteTime(HealthTimeBox.Text);
+        HealthWhenText.Text = new HealthSettings
+        {
+            Every = every,
+            Day = (HealthDayBox.SelectedItem as ComboBoxItem)?.Tag is DayOfWeek d ? d : DayOfWeek.Monday,
+            DayOfMonth = (HealthMonthDayBox.SelectedItem as ComboBoxItem)?.Tag is int n ? n : 1,
+            Time = TimeSpan.TryParse(time, out _) ? time : "…",
+        }.WhenText();
+    }
 
     private async void SaveHealth_Click(object sender, RoutedEventArgs e)
     {
@@ -599,12 +630,18 @@ public partial class MainWindow : Window
             return v;
         }
         var s = AppSettings.Load();
+        string time = InputBehaviors.CompleteTime(HealthTimeBox.Text);
         try
         {
+            if (!TimeSpan.TryParse(time, out _)) throw new ArgumentException("Enter the check time like 09:00.");
+            HealthTimeBox.Text = time;
             s.Health = new HealthSettings
             {
                 Monitor = HealthMonitorBox.IsChecked == true,
                 Every = (HealthInterval)Math.Max(0, HealthEveryBox.SelectedIndex),
+                Time = time,
+                Day = (HealthDayBox.SelectedItem as ComboBoxItem)?.Tag is DayOfWeek d ? d : DayOfWeek.Monday,
+                DayOfMonth = (HealthMonthDayBox.SelectedItem as ComboBoxItem)?.Tag is int n ? n : 1,
                 EmailOnStatusChange = HealthStatusBox.IsChecked == true,
                 EmailOnLowLife = HealthLifeBox.IsChecked == true,
                 LowLifePercent = Number(HealthLifeText, "The health limit", 1, 99),
@@ -630,8 +667,8 @@ public partial class MainWindow : Window
             bool email = s.Email.Host.Length > 0 && s.Email.To.Length > 0;
             HealthStatusText.Foreground = DiskBars.Hex(email || !s.Health.Monitor ? "#14532D" : "#92400E");
             HealthStatusText.Text = !s.Health.Monitor ? "Saved. Background checks are off."
-                : email ? $"Saved. Drives are checked {HealthSettings.EveryText(s.Health.Every)}."
-                : $"Saved. Drives are checked {HealthSettings.EveryText(s.Health.Every)}, but no email server is set above, so alerts only appear on screen.";
+                : email ? $"Saved. Drives are checked {s.Health.ScheduleText()}."
+                : $"Saved. Drives are checked {s.Health.ScheduleText()}, but no email server is set above, so alerts only appear on screen.";
             await RefreshHealth();
         }
         catch (Exception ex)

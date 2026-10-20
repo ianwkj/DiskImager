@@ -15,7 +15,7 @@ if (args.Length >= 3 && args[0] == "--health-xml")
 {
     // Task XML for each interval, for registering with Task Scheduler by hand (needs admin).
     foreach (var every in Enum.GetValues<HealthInterval>())
-        File.WriteAllText(Path.Combine(args[1], $"health-{every}.xml"), TaskSchedulerService.BuildHealthXml(args[2], every), Encoding.Unicode);
+        File.WriteAllText(Path.Combine(args[1], $"health-{every}.xml"), TaskSchedulerService.BuildHealthXml(args[2], new HealthSettings { Every = every }), Encoding.Unicode);
     return 0;
 }
 if (args.Length >= 3 && args[0] == "--health-ui") return UiTest.HealthUi(args[1], args[2]);

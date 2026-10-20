@@ -10,6 +10,12 @@ public sealed class HealthSettings
     /// <summary>Check every drive in the background (a SYSTEM scheduled task) and email on changes.</summary>
     public bool Monitor { get; set; } = true;
     public HealthInterval Every { get; set; } = HealthInterval.Hour;
+    /// <summary>Time of day for daily, weekly and monthly checks (HH:mm).</summary>
+    public string Time { get; set; } = "09:00";
+    /// <summary>Day of the week for weekly checks.</summary>
+    public DayOfWeek Day { get; set; } = DayOfWeek.Monday;
+    /// <summary>Day of the month for monthly checks (1–28, so every month has it).</summary>
+    public int DayOfMonth { get; set; } = 1;
 
     public bool EmailOnStatusChange { get; set; } = true;
     public bool EmailOnLowLife { get; set; } = true;
@@ -28,8 +34,25 @@ public sealed class HealthSettings
         _ => "1 hour",
     };
 
-    /// <summary>For sentences: "every hour", "every day"…</summary>
-    public static string EveryText(HealthInterval i) => "every " + Describe(i)[2..];
+    public static string Ordinal(int n) => n + (n % 100 is 11 or 12 or 13 ? "th" : (n % 10) switch { 1 => "st", 2 => "nd", 3 => "rd", _ => "th" });
+
+    /// <summary>Exactly when the background check runs, in words.</summary>
+    public string WhenText() => Every switch
+    {
+        HealthInterval.Day => $"Checks every day at {Time}, or soon after the PC is next turned on if it was off then.",
+        HealthInterval.Week => $"Checks every {Day} at {Time}, or soon after the PC is next turned on if it was off then.",
+        HealthInterval.Month => $"Checks on the {Ordinal(DayOfMonth)} of every month at {Time}, or soon after the PC is next turned on if it was off then.",
+        _ => "Checks 5 minutes after the PC starts, then every hour while it's on.",
+    };
+
+    /// <summary>Short form for status lines: "every hour", "every Monday at 09:00"…</summary>
+    public string ScheduleText() => Every switch
+    {
+        HealthInterval.Day => $"every day at {Time}",
+        HealthInterval.Week => $"every {Day} at {Time}",
+        HealthInterval.Month => $"on the {Ordinal(DayOfMonth)} of each month at {Time}",
+        _ => "every hour",
+    };
 }
 
 /// <summary>What the background check remembers about one drive between runs.</summary>
