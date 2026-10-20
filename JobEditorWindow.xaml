@@ -35,7 +35,7 @@
                         <TextBox x:Name="DestBox" TextChanged="DestBox_TextChanged"/>
                     </DockPanel>
                     <TextBlock Grid.Row="3" Grid.Column="1" Foreground="#64748B" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6"
-                               Text="A folder on another disk (E:\Backups), a USB drive, or a NAS / network share (\\NAS\Backups\PC1). For scheduled jobs use the \\server\share form, not a mapped drive letter."/>
+                               Text="A folder on another disk (E:\Backups), a USB drive, or a NAS / network share (\\NAS\Backups\PC1). For scheduled jobs use the \\server\share form, not a mapped drive letter. For the weekly report, give each PC its own folder inside one office share (\\NAS\Backups\FrontDesk, \\NAS\Backups\Accounts…): the status notes go in \\NAS\Backups\_DiskImagerStatus."/>
 
                     <TextBlock x:Name="NetLabel" Grid.Row="4" Text="Network login" VerticalAlignment="Center" Visibility="Collapsed"/>
                     <StackPanel x:Name="NetPanel" Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Margin="0,3" Visibility="Collapsed">

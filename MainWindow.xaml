@@ -341,7 +341,7 @@
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
                                 <Grid.RowDefinitions>
-                                    <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
+                                    <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
                                 </Grid.RowDefinitions>
                                 <TextBlock Text="Client" VerticalAlignment="Center"/>
                                 <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,3">
@@ -362,7 +362,26 @@
                                     <TextBox x:Name="ReportTimeBox" Width="64" HorizontalContentAlignment="Center"/>
                                 </StackPanel>
                                 <TextBlock Grid.Row="4" Grid.Column="1" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="26,6,0,0"
-                                           Text="Every PC leaves a status note next to its backups. This PC reads them all and emails one report per client, including PCs that stopped backing up or reporting. Choose one PC per office, ideally one that's always on."/>
+                                           Text="After every backup, each PC leaves a status note in a _DiskImagerStatus folder at the top of the share or drive it backs up to. This PC reads the notes in the places its own backups go and emails one report per client, including PCs that stopped backing up or reporting. Choose one PC per office, ideally one that's always on."/>
+                                <Border Grid.Row="5" Grid.Column="1" Background="#F8FAFC" BorderBrush="{StaticResource CardBorder}" BorderThickness="1"
+                                        CornerRadius="8" Padding="12,10" Margin="26,10,0,0">
+                                    <DockPanel>
+                                        <TextBlock DockPanel.Dock="Left" Text="&#xE946;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource Accent}"
+                                                   Margin="0,2,10,0" VerticalAlignment="Top"/>
+                                        <StackPanel>
+                                            <TextBlock FontWeight="SemiBold" Foreground="#334155" Text="How to store the backups so every PC appears in the report"/>
+                                            <TextBlock Style="{StaticResource Hint}" Margin="0,4,0,6" TextWrapping="Wrap"
+                                                       Text="Give each PC its own folder inside one shared folder on the NAS, and back this PC up there too. The status folder is created at the top of that share, next to the PCs' folders:"/>
+                                            <TextBlock FontFamily="Cascadia Mono, Consolas" FontSize="12" Foreground="#334155" xml:space="preserve">\\NAS\Backups\                 ← one share for the office
+    FrontDesk\                 ← each PC's backups
+    Accounts\
+    Server01\
+    _DiskImagerStatus\         ← every PC's status note (made automatically)</TextBlock>
+                                            <TextBlock Style="{StaticResource Hint}" Margin="0,6,0,0" TextWrapping="Wrap"
+                                                       Text="Each PC's NAS login must be allowed to create folders at the top of the share. PCs that back up to a different share, or to their own USB drive, don't appear in this PC's report."/>
+                                        </StackPanel>
+                                    </DockPanel>
+                                </Border>
                             </Grid>
                         </GroupBox>
                         <StackPanel Orientation="Horizontal" Margin="0,-6,0,18">
