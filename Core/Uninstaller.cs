@@ -33,6 +33,8 @@ public static class Uninstaller
         catch (Exception ex) { log.Warn("Couldn't set up the helper tasks: " + ex.Message); }
         try { TaskSchedulerService.SyncReportTask(log); }
         catch (Exception ex) { log.Warn("Couldn't set up the weekly report task: " + ex.Message); }
+        try { TaskSchedulerService.SyncHealthTask(log); }
+        catch (Exception ex) { log.Warn("Couldn't set up the disk health check: " + ex.Message); }
         log.Info($"Setup: {jobs.Count} job(s) re-scheduled.");
     }
 

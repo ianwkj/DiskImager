@@ -38,6 +38,7 @@ public sealed class AppSettings
     public EmailSettings Email { get; set; } = new();
     public UpdateSettings Updates { get; set; } = new();
     public ReportSettings Report { get; set; } = new();
+    public HealthSettings Health { get; set; } = new();
 
     private static string FilePath => Path.Combine(JobStore.DataFolder, "settings.json");
 
@@ -71,6 +72,8 @@ public sealed class EmailMessage
 {
     public string Subject { get; set; } = "";
     public EmailTone Tone { get; set; } = EmailTone.Info;
+    /// <summary>Text of the status pill; null uses the tone's default (Success, Failed, Missed, Info).</summary>
+    public string? StatusLabel { get; set; }
     public string Heading { get; set; } = "";
     public string Intro { get; set; } = "";
     public List<(string Label, string Value)> Rows { get; } = new();
@@ -127,6 +130,7 @@ public sealed class EmailMessage
                 EmailTone.Warning => ("#D97706", "&#9888;", "Missed"),
                 _ => ("#2563EB", "&#9993;", "Info"),
             };
+            if (StatusLabel != null) label = StatusLabel;
             var sb = new StringBuilder();
             sb.Append("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"></head>");
             sb.Append("<body style=\"margin:0;padding:0;background:#F1F5F9;font-family:'Segoe UI',Helvetica,Arial,sans-serif;color:#0F172A;\">");

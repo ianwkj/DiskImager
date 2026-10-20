@@ -193,12 +193,40 @@
                 </DockPanel>
             </TabItem>
 
+            <!-- ======================================================== DISK HEALTH -->
+            <TabItem Header="Disk health" Tag="&#xE95E;" Style="{StaticResource NavItem}">
+                <DockPanel x:Name="HealthPanel">
+                    <DockPanel DockPanel.Dock="Top">
+                        <Button DockPanel.Dock="Right" x:Name="HealthRefreshButton" Content="Check now" Tag="&#xE72C;" Click="HealthRefresh_Click"
+                                VerticalAlignment="Top" Margin="0"/>
+                        <StackPanel>
+                            <TextBlock Text="Disk health" Style="{StaticResource PageTitle}"/>
+                            <TextBlock x:Name="HealthSubtitle" Style="{StaticResource PageSubtitle}"
+                                       Text="Each drive's own health readings (SMART). DiskImager can check them in the background and email you when something changes."/>
+                        </StackPanel>
+                    </DockPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="310"/>
+                            <ColumnDefinition Width="16"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <ListBox x:Name="HealthList" ItemContainerStyle="{StaticResource CardItem}" HorizontalContentAlignment="Stretch"
+                                 BorderThickness="0" Background="Transparent" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 ScrollViewer.CanContentScroll="False" SelectionChanged="HealthList_SelectionChanged"/>
+                        <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" Padding="0,0,4,0">
+                            <ContentControl x:Name="HealthDetail"/>
+                        </ScrollViewer>
+                    </Grid>
+                </DockPanel>
+            </TabItem>
+
             <!-- ======================================================== SETTINGS -->
             <TabItem Header="Settings" Tag="&#xE713;" Style="{StaticResource NavItem}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel MaxWidth="820" HorizontalAlignment="Left">
                         <TextBlock Text="Settings" Style="{StaticResource PageTitle}"/>
-                        <TextBlock Text="Email notifications, this PC's labels and the weekly report, updates, and information about DiskImager." Style="{StaticResource PageSubtitle}"/>
+                        <TextBlock Text="Email notifications, disk health alerts, this PC's labels and the weekly report, updates, and information about DiskImager." Style="{StaticResource PageSubtitle}"/>
 
                         <GroupBox Header="Email notifications">
                             <StackPanel>
@@ -256,6 +284,52 @@
                                     <Button Content="Save" Tag="&#xE74E;" Style="{StaticResource Primary}" Click="SaveEmail_Click"/>
                                     <Button Content="Send test email" Tag="&#xE715;" Click="TestEmail_Click"/>
                                     <TextBlock x:Name="EmailStatus" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" MaxWidth="420"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Disk health monitoring">
+                            <StackPanel Margin="0,4,0,0">
+                                <StackPanel Orientation="Horizontal">
+                                    <CheckBox x:Name="HealthMonitorBox" Content="Check this PC's drives in the background, every" VerticalAlignment="Center"
+                                              Click="HealthMonitorBox_Click"/>
+                                    <ComboBox x:Name="HealthEveryBox" Width="110" Margin="10,0,0,0">
+                                        <ComboBoxItem>1 hour</ComboBoxItem>
+                                        <ComboBoxItem>1 day</ComboBoxItem>
+                                        <ComboBoxItem>1 week</ComboBoxItem>
+                                        <ComboBoxItem>1 month</ComboBoxItem>
+                                    </ComboBox>
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource Hint}" Margin="26,6,0,0" TextWrapping="Wrap"
+                                           Text="Runs quietly as a Windows scheduled task, even when nobody is signed in. Longer intervals use less, but a failing drive is noticed later. The Disk health page always checks right away."/>
+
+                                <StackPanel x:Name="HealthAlertsPanel" Margin="0,16,0,0">
+                                    <TextBlock Text="Email me when" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                                    <CheckBox x:Name="HealthStatusBox" Margin="0,0,0,10" Content="a drive's health status changes (Good, Caution, Bad)"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                        <CheckBox x:Name="HealthLifeBox" Content="health drops below" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="HealthLifeText" Width="52" Margin="8,0,6,0" HorizontalContentAlignment="Center"/>
+                                        <TextBlock Text="%" VerticalAlignment="Center"/>
+                                        <TextBlock Text="  ·  SSDs only: hard disks don't report a life percentage" Style="{StaticResource Hint}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                        <CheckBox x:Name="HealthHotBox" Content="temperature goes above" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="HealthHotSsdText" Width="52" Margin="8,0,6,0" HorizontalContentAlignment="Center"/>
+                                        <TextBlock Text="°C for SSDs, or" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="HealthHotHddText" Width="52" Margin="8,0,6,0" HorizontalContentAlignment="Center"/>
+                                        <TextBlock Text="°C for hard disks" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal">
+                                        <CheckBox x:Name="HealthSectorBox" Content="bad sectors increase by" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="HealthSectorText" Width="52" Margin="8,0,6,0" HorizontalContentAlignment="Center"/>
+                                        <TextBlock Text="or more" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <TextBlock Style="{StaticResource Hint}" Margin="0,10,0,0" TextWrapping="Wrap"
+                                               Text="Alerts use the email server and addresses above. Each alert is sent once when a limit is crossed, and again only if the drive recovers and crosses it again."/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                                    <Button Content="Save" Tag="&#xE74E;" Style="{StaticResource Primary}" Click="SaveHealth_Click"/>
+                                    <TextBlock x:Name="HealthStatusText" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" MaxWidth="520"/>
                                 </StackPanel>
                             </StackPanel>
                         </GroupBox>

@@ -9,6 +9,16 @@ if (args.Length >= 3 && args[0] == "--layout") return UiTest.LayoutTest(args[1],
 if (args.Length >= 4 && args[0] == "--setup") return SetupTest.Run(args[1], args[2], args[3]);
 if (args.Length >= 4 && args[0] == "--restore") return UiTest.RestoreTest(args[1], args[2], args[3]);
 if (args.Length >= 4 && args[0] == "--update") return UpdateUiTest.Run(args[1], args[2], args[3]);
+if (args.Length >= 1 && args[0] == "--health-live") return HealthTest.Live();
+if (args.Length >= 2 && args[0] == "--health-render") return HealthTest.Render(args[1]);
+if (args.Length >= 3 && args[0] == "--health-xml")
+{
+    // Task XML for each interval, for registering with Task Scheduler by hand (needs admin).
+    foreach (var every in Enum.GetValues<HealthInterval>())
+        File.WriteAllText(Path.Combine(args[1], $"health-{every}.xml"), TaskSchedulerService.BuildHealthXml(args[2], every), Encoding.Unicode);
+    return 0;
+}
+if (args.Length >= 3 && args[0] == "--health-ui") return UiTest.HealthUi(args[1], args[2]);
 
 string work = args.Length > 0 ? args[0] : Path.Combine(Path.GetTempPath(), "diskimager-smoke");
 if (Directory.Exists(work))
@@ -795,6 +805,9 @@ NtfsTest.Run(work, log, Check);
     Check(loaded.Select(j => j.After).SequenceEqual(new[] { PostAction.None, PostAction.None, PostAction.Shutdown, PostAction.Restart }),
         "Sleep/Hibernate become 'do nothing'; Shut down and Restart are kept");
 }
+
+// ---- Disk health: parsing, Good/Caution/Bad, alert limits, scheduled task, email.
+HealthTest.Run(work, Check);
 
 // ---- Auto-update: version tags, signatures, and a fake GitHub serving releases.
 await UpdaterTest.Run(work, log, Check);

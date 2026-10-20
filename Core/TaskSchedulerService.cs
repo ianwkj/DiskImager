@@ -32,43 +32,147 @@ public static class TaskSchedulerService
     /// and makes sure the helper tasks are registered and the tray helper is running.</summary>
     public static void RefreshInstalledCopy(Logger log)
     {
-        if (!JobStore.Load().Any(j => j.RegisteredTasks.Count > 0)) return;
+        if (!Environment.IsPrivilegedProcess) return; // can't write Program Files or Task Scheduler (UI tests run this way)
+        bool jobs = JobStore.Load().Any(j => j.RegisteredTasks.Count > 0);
+        if (!jobs && !AppSettings.Load().Health.Monitor) return;
         if (Directory.Exists(InstallFolder)) EnsureInstalled(log);
         SyncMissedCheck(log);
-        try { SyncReportTask(log); } catch (Exception ex) { log.Warn("Couldn't update the weekly report task: " + ex.Message); }
+        try { SyncHealthTask(log); } catch (Exception ex) { log.Warn("Couldn't update the disk health task: " + ex.Message); }
+        if (jobs)
+            try { SyncReportTask(log); } catch (Exception ex) { log.Warn("Couldn't update the weekly report task: " + ex.Message); }
     }
 
     public const string MissedCheckTask = @"DiskImager\Missed backup check";
     public const string TrayAgentTask = @"DiskImager\Tray helper";
+    public const string HealthTask = @"DiskImager\Disk health check";
 
     /// <summary>
-    /// Registers (or removes, when there are no scheduled jobs) the helper tasks:
-    ///  - the missed-backup check (3 min after startup, 3 min after wake, daily at 12:00), as SYSTEM;
-    ///  - the tray helper, started at every user's sign-in as that user (shows the countdown and progress).
+    /// Registers (or removes) the helper tasks:
+    ///  - the missed-backup check (3 min after startup, 3 min after wake, daily at 12:00), as SYSTEM, while there are scheduled jobs;
+    ///  - the tray helper, started at every user's sign-in as that user (shows the countdown, progress and disk health
+    ///    alerts), while there are scheduled jobs or disk health monitoring is on.
     /// Also starts the tray helper in this session if it isn't running.
     /// </summary>
     public static void SyncMissedCheck(Logger log)
     {
-        if (!JobStore.Load().Any(j => j.RegisteredTasks.Count > 0))
+        bool jobs = JobStore.Load().Any(j => j.RegisteredTasks.Count > 0);
+        bool health = AppSettings.Load().Health.Monitor;
+        if (!jobs) RunSchtasks($"/Delete /TN \"{MissedCheckTask}\" /F", throwOnError: false);
+        if (!jobs && !health)
         {
-            RunSchtasks($"/Delete /TN \"{MissedCheckTask}\" /F", throwOnError: false);
             RunSchtasks($"/Delete /TN \"{TrayAgentTask}\" /F", throwOnError: false);
             AgentChannel.AskAgentsToExit();
             return;
         }
         AgentChannel.EnsureFolder();
         string exe = EnsureInstalled(log);
-        CreateFromXml(MissedCheckTask, BuildMissedCheckXml(exe));
+        if (jobs) CreateFromXml(MissedCheckTask, BuildMissedCheckXml(exe));
         CreateFromXml(TrayAgentTask, BuildTrayAgentXml(exe));
         StartTrayAgent(exe);
     }
 
-    /// <summary>Removes the missed-backup check and tray helper tasks (used by uninstall).</summary>
+    /// <summary>Creates or removes the background disk health check to match the settings.</summary>
+    public static void SyncHealthTask(Logger log)
+    {
+        var h = AppSettings.Load().Health;
+        if (!h.Monitor)
+        {
+            RunSchtasks($"/Delete /TN \"{HealthTask}\" /F", throwOnError: false);
+            return;
+        }
+        CreateFromXml(HealthTask, BuildHealthXml(EnsureInstalled(log), h.Every));
+        log.Info($"Disk health is checked {HealthSettings.EveryText(h.Every)}.");
+    }
+
+    /// <summary>Removes the missed-backup check, tray helper, report and disk health tasks (used by uninstall).</summary>
     public static void RemoveHelperTasks()
     {
         RunSchtasks($"/Delete /TN \"{MissedCheckTask}\" /F", throwOnError: false);
         RunSchtasks($"/Delete /TN \"{TrayAgentTask}\" /F", throwOnError: false);
         RunSchtasks($"/Delete /TN \"{ReportTask}\" /F", throwOnError: false);
+        RunSchtasks($"/Delete /TN \"{HealthTask}\" /F", throwOnError: false);
+    }
+
+    /// <summary>
+    /// The background disk health check, as SYSTEM. Hourly: every hour from 5 minutes after startup. Daily, weekly
+    /// and monthly: at 09:00 (on Mondays / the 1st), run as soon as possible if the PC was off at that time.
+    /// </summary>
+    public static string BuildHealthXml(string exe, HealthInterval every)
+    {
+        string today = $"{DateTime.Today:yyyy-MM-dd}T09:00:00";
+        string triggers = every switch
+        {
+            HealthInterval.Day => $"""
+                <CalendarTrigger>
+                  <StartBoundary>{today}</StartBoundary>
+                  <Enabled>true</Enabled>
+                  <ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay>
+                </CalendarTrigger>
+                """,
+            HealthInterval.Week => $"""
+                <CalendarTrigger>
+                  <StartBoundary>{today}</StartBoundary>
+                  <Enabled>true</Enabled>
+                  <ScheduleByWeek><DaysOfWeek><Monday /></DaysOfWeek><WeeksInterval>1</WeeksInterval></ScheduleByWeek>
+                </CalendarTrigger>
+                """,
+            HealthInterval.Month => $"""
+                <CalendarTrigger>
+                  <StartBoundary>{today}</StartBoundary>
+                  <Enabled>true</Enabled>
+                  <ScheduleByMonth><DaysOfMonth><Day>1</Day></DaysOfMonth><Months><January /><February /><March /><April /><May /><June /><July /><August /><September /><October /><November /><December /></Months></ScheduleByMonth>
+                </CalendarTrigger>
+                """,
+            _ => $"""
+                <BootTrigger>
+                  <Enabled>true</Enabled>
+                  <Delay>PT5M</Delay>
+                </BootTrigger>
+                <TimeTrigger>
+                  <StartBoundary>{DateTime.Now:yyyy-MM-dd}T{DateTime.Now:HH\:mm}:00</StartBoundary>
+                  <Enabled>true</Enabled>
+                  <Repetition><Interval>PT1H</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition>
+                </TimeTrigger>
+                """,
+        };
+        return $"""
+            <?xml version="1.0" encoding="UTF-16"?>
+            <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+              <RegistrationInfo>
+                <Description>DiskImager: checks the health of this PC's drives {HealthSettings.EveryText(every)} and emails you if it changes.</Description>
+              </RegistrationInfo>
+              <Triggers>
+                {triggers}
+              </Triggers>
+              <Principals>
+                <Principal id="Author">
+                  <UserId>S-1-5-18</UserId>
+                  <RunLevel>HighestAvailable</RunLevel>
+                </Principal>
+              </Principals>
+              <Settings>
+                <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+                <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+                <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+                <AllowHardTerminate>true</AllowHardTerminate>
+                <StartWhenAvailable>true</StartWhenAvailable>
+                <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+                <AllowStartOnDemand>true</AllowStartOnDemand>
+                <Enabled>true</Enabled>
+                <Hidden>false</Hidden>
+                <RunOnlyIfIdle>false</RunOnlyIfIdle>
+                <WakeToRun>false</WakeToRun>
+                <ExecutionTimeLimit>PT10M</ExecutionTimeLimit>
+                <Priority>7</Priority>
+              </Settings>
+              <Actions Context="Author">
+                <Exec>
+                  <Command>{SecurityElement.Escape(exe)}</Command>
+                  <Arguments>--health-check</Arguments>
+                </Exec>
+              </Actions>
+            </Task>
+            """;
     }
 
     private static void CreateFromXml(string name, string xml)

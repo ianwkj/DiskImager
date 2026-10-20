@@ -272,6 +272,83 @@ static class UiTest
 
     private static void SetValue(AutomationElement e, string v) => ((ValuePattern)e.GetCurrentPattern(ValuePattern.Pattern)).SetValue(v);
 
+    /// <summary>Disk health page with this PC's real drives, then the monitoring settings: dotnet run -- --health-ui exe shots</summary>
+    public static int HealthUi(string exe, string shots)
+    {
+        int failures = 0;
+        void Check(bool ok, string what) { Console.WriteLine($"{(ok ? "PASS" : "FAIL")}  {what}"); if (!ok) failures++; }
+        Directory.CreateDirectory(shots);
+        var app = Process.Start(new ProcessStartInfo(exe, "--no-elevate") { UseShellExecute = false })!;
+        try
+        {
+            var main = WaitFor(() =>
+            {
+                app.Refresh();
+                return app.MainWindowHandle != IntPtr.Zero ? AutomationElement.FromHandle(app.MainWindowHandle) : null;
+            }, 20);
+            Check(main != null, "main window opens");
+            if (main == null) return 1;
+            Thread.Sleep(2500);
+            var nav = All(main, ControlType.TabItem).Select(t => t.Current.Name).ToList();
+            int h = nav.IndexOf("Disk health"), s = nav.IndexOf("Settings");
+            Check(h >= 0 && s == h + 1, $"Disk health tab sits right above Settings ({string.Join(", ", nav)})");
+
+            Select(main, "Disk health");
+            var card = WaitFor(() => main.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem))
+                .Cast<AutomationElement>().FirstOrDefault(i => All(i, ControlType.Text).Any(t => t.Current.Name.StartsWith("Disk "))), 15);
+            Check(card != null, "a card per drive");
+            Thread.Sleep(800);
+            var texts = All(main, ControlType.Text).Select(t => t.Current.Name).ToList();
+            Check(texts.Contains("HEALTH STATUS") && texts.Contains("TEMPERATURE"), "health and temperature badges shown");
+            Check(texts.Any(t => t.EndsWith('%')), "health percentage shown");
+            Check(texts.Contains("NVMe health readings") || texts.Contains("SMART readings") || texts.Contains("Health data isn't available for this drive"),
+                "readings table (or the reason there's none)");
+            ShotWindow(shots, "health-1-first-drive", main);
+
+            var items = main.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem))
+                .Cast<AutomationElement>().Where(i => All(i, ControlType.Text).Any(t => t.Current.Name.StartsWith("Disk "))).ToList();
+            if (items.Count > 1)
+            {
+                ((SelectionItemPattern)items[1].GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+                Thread.Sleep(800);
+                ShotWindow(shots, "health-2-second-drive", main);
+            }
+
+            Select(main, "Settings");
+            Thread.Sleep(800);
+            var group = WaitFor(() => All(main, ControlType.Text).FirstOrDefault(t => t.Current.Name == "Disk health monitoring"), 5);
+            Check(group != null, "Disk health monitoring settings shown");
+            var every = WaitFor(() => ById(main, "HealthEveryBox"), 3);
+            if (every != null)
+            {
+                var ec = (ExpandCollapsePattern)every.GetCurrentPattern(ExpandCollapsePattern.Pattern);
+                ec.Expand();
+                Thread.Sleep(700);
+                // The open list lives in a popup window of its own, not under the combo box.
+                var options = AutomationElement.RootElement.FindAll(TreeScope.Children, new PropertyCondition(AutomationElement.ProcessIdProperty, app.Id))
+                    .Cast<AutomationElement>().SelectMany(w => All(w, ControlType.ListItem)).Select(i => i.Current.Name)
+                    .Where(n => n.StartsWith("1 ")).Distinct().ToList();
+                Check(options.SequenceEqual(new[] { "1 hour", "1 day", "1 week", "1 month" }), $"interval choices: {string.Join(", ", options)}");
+                ec.Collapse();
+            }
+            // Scroll the settings page down to the alert limits.
+            var scroller = All(main, ControlType.Pane).Concat(new[] { main })
+                .Select(p => p.TryGetCurrentPattern(ScrollPattern.Pattern, out var sp) ? (ScrollPattern)sp : null)
+                .FirstOrDefault(sp => sp != null && sp.Current.VerticallyScrollable);
+            try { scroller?.SetScrollPercent(ScrollPattern.NoScroll, 38); } catch { }
+            var life = ById(main, "HealthLifeText");
+            Thread.Sleep(700);
+            Check(life != null && Value(life) == "20", "health limit defaults to 20%");
+            ShotWindow(shots, "health-3-settings", main);
+        }
+        finally
+        {
+            try { app.Kill(); } catch { }
+        }
+        Console.WriteLine(failures == 0 ? "HEALTH UI TESTS PASSED" : $"{failures} HEALTH UI TEST(S) FAILED");
+        return failures == 0 ? 0 : 1;
+    }
+
     private static void ShotWindow(string folder, string name, AutomationElement window)
     {
         try

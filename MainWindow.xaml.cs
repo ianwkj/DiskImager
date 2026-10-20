@@ -43,6 +43,8 @@ public partial class MainWindow : Window
         {
             LoadEmailSettings();
             LoadReportSettings();
+            LoadHealthSettings();
+            _ = RefreshHealth();
             AutoUpdateBox.IsChecked = AppSettings.Load().Updates.CheckOnStartup;
             _ = Task.Run(() =>
             {
@@ -513,6 +515,127 @@ public partial class MainWindow : Window
         try { ReportStatus.Text = await Task.Run(() => WeeklyReport.Send(_log)); }
         catch (Exception ex) { ReportStatus.Text = "Couldn't send the report: " + ex.Message; }
         finally { SendReportButton.IsEnabled = true; }
+    }
+
+    // ---------------------------------------------------------------- Disk health
+
+    private List<DriveHealth> _health = new();
+    private bool _healthBusy;
+
+    private async Task RefreshHealth()
+    {
+        if (_healthBusy) return;
+        _healthBusy = true;
+        HealthRefreshButton.IsEnabled = false;
+        string? selectedKey = ((HealthList.SelectedItem as FrameworkElement)?.Tag as DriveHealth)?.Key;
+        if (_health.Count == 0) HealthDetail.Content = new TextBlock { Text = "Reading each drive's health…", Style = (Style)FindResource("Hint") };
+        try
+        {
+            _health = await Task.Run(() => SmartReader.ReadAll(_log));
+            var settings = AppSettings.Load().Health;
+            HealthList.Items.Clear();
+            foreach (var d in _health) HealthList.Items.Add(HealthView.Card(d, settings));
+            int idx = Math.Max(0, _health.FindIndex(d => d.Key == selectedKey));
+            if (_health.Count > 0) HealthList.SelectedIndex = idx;
+            else HealthDetail.Content = new TextBlock { Text = "No drives found.", Style = (Style)FindResource("Hint") };
+
+            var state = HealthMonitor.LoadState();
+            string bg = !settings.Monitor ? "Background checks are off (Settings → Disk health monitoring)."
+                : state.LastCheckUtc is DateTime last ? $"Checked in the background {HealthSettings.EveryText(settings.Every)}; last check {last.ToLocalTime():d MMM, HH:mm}."
+                : $"Checked in the background {HealthSettings.EveryText(settings.Every)}.";
+            int attention = _health.Count(d => d.Status is HealthStatus.Caution or HealthStatus.Bad);
+            HealthSubtitle.Text = (attention == 0 ? "Each drive's own health readings (SMART). " : $"{attention} drive{(attention == 1 ? " needs" : "s need")} attention. ") + bg;
+        }
+        catch (Exception ex)
+        {
+            _log.Error("Disk health: " + ex.Message);
+            HealthDetail.Content = new TextBlock { Text = "Couldn't read drive health: " + ex.Message, Style = (Style)FindResource("Hint") };
+        }
+        finally
+        {
+            _healthBusy = false;
+            HealthRefreshButton.IsEnabled = true;
+        }
+    }
+
+    private async void HealthRefresh_Click(object sender, RoutedEventArgs e) => await RefreshHealth();
+
+    private void HealthList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if ((HealthList.SelectedItem as FrameworkElement)?.Tag is DriveHealth d)
+            HealthDetail.Content = HealthView.Details(d, AppSettings.Load().Health);
+    }
+
+    private void LoadHealthSettings()
+    {
+        var h = AppSettings.Load().Health;
+        HealthMonitorBox.IsChecked = h.Monitor;
+        HealthEveryBox.SelectedIndex = (int)h.Every;
+        HealthStatusBox.IsChecked = h.EmailOnStatusChange;
+        HealthLifeBox.IsChecked = h.EmailOnLowLife;
+        HealthLifeText.Text = h.LowLifePercent.ToString();
+        HealthHotBox.IsChecked = h.EmailOnHot;
+        HealthHotSsdText.Text = h.HotSsdC.ToString();
+        HealthHotHddText.Text = h.HotHddC.ToString();
+        HealthSectorBox.IsChecked = h.EmailOnBadSectors;
+        HealthSectorText.Text = h.BadSectorIncrease.ToString();
+        foreach (var box in new[] { HealthLifeText, HealthHotSsdText, HealthHotHddText }) InputBehaviors.AttachNumber(box, 3);
+        InputBehaviors.AttachNumber(HealthSectorText, 5);
+        HealthMonitorBox_Click(this, new RoutedEventArgs());
+    }
+
+    private void HealthMonitorBox_Click(object sender, RoutedEventArgs e) =>
+        HealthEveryBox.IsEnabled = HealthAlertsPanel.IsEnabled = HealthMonitorBox.IsChecked == true;
+
+    private async void SaveHealth_Click(object sender, RoutedEventArgs e)
+    {
+        int Number(TextBox box, string what, int min, int max)
+        {
+            if (!int.TryParse(box.Text.Trim(), out int v) || v < min || v > max)
+                throw new ArgumentException($"{what} must be a number from {min} to {max}.");
+            return v;
+        }
+        var s = AppSettings.Load();
+        try
+        {
+            s.Health = new HealthSettings
+            {
+                Monitor = HealthMonitorBox.IsChecked == true,
+                Every = (HealthInterval)Math.Max(0, HealthEveryBox.SelectedIndex),
+                EmailOnStatusChange = HealthStatusBox.IsChecked == true,
+                EmailOnLowLife = HealthLifeBox.IsChecked == true,
+                LowLifePercent = Number(HealthLifeText, "The health limit", 1, 99),
+                EmailOnHot = HealthHotBox.IsChecked == true,
+                HotSsdC = Number(HealthHotSsdText, "The SSD temperature limit", 30, 100),
+                HotHddC = Number(HealthHotHddText, "The hard disk temperature limit", 30, 100),
+                EmailOnBadSectors = HealthSectorBox.IsChecked == true,
+                BadSectorIncrease = Number(HealthSectorText, "The bad-sector increase", 1, 99999),
+            };
+        }
+        catch (ArgumentException ex) { Error(ex.Message); return; }
+
+        HealthStatusText.Foreground = DiskBars.Hex("#475569");
+        HealthStatusText.Text = "Saving…";
+        try
+        {
+            s.Save();
+            await Task.Run(() =>
+            {
+                TaskSchedulerService.SyncHealthTask(_log);
+                TaskSchedulerService.SyncMissedCheck(_log); // the tray helper shows health alerts
+            });
+            bool email = s.Email.Host.Length > 0 && s.Email.To.Length > 0;
+            HealthStatusText.Foreground = DiskBars.Hex(email || !s.Health.Monitor ? "#14532D" : "#92400E");
+            HealthStatusText.Text = !s.Health.Monitor ? "Saved. Background checks are off."
+                : email ? $"Saved. Drives are checked {HealthSettings.EveryText(s.Health.Every)}."
+                : $"Saved. Drives are checked {HealthSettings.EveryText(s.Health.Every)}, but no email server is set above, so alerts only appear on screen.";
+            await RefreshHealth();
+        }
+        catch (Exception ex)
+        {
+            HealthStatusText.Foreground = DiskBars.Hex("#991B1B");
+            HealthStatusText.Text = "Couldn't save: " + ex.Message;
+        }
     }
 
     // ---------------------------------------------------------------- Settings

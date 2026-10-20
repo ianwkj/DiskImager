@@ -12,6 +12,8 @@
   <ItemGroup>
     <Compile Include="..\..\Core\**\*.cs" Link="Core\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\..\InputBehaviors.cs" Link="InputBehaviors.cs" />
+    <Compile Include="..\..\HealthView.cs" Link="HealthView.cs" />
+    <Compile Include="..\..\DiskBars.cs" Link="DiskBars.cs" />
     <Using Remove="System.Windows.Forms" />
     <Using Remove="System.Drawing" />
     <Using Include="System.IO" />

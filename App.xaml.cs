@@ -36,6 +36,12 @@ public partial class App : Application
             Shutdown(MissedCheck.Run(new Logger()));
             return;
         }
+        if (e.Args.Contains("--health-check"))
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            Shutdown(HealthMonitor.Run(new Logger()));
+            return;
+        }
         if (e.Args.Contains("--weekly-report"))
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;

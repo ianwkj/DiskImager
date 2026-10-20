@@ -38,6 +38,7 @@ public sealed class TrayAgent
         menu.Items.Add("Open DiskImager", null, (_, _) => OpenMainApp());
         _icon.ContextMenuStrip = menu;
         _icon.DoubleClick += (_, _) => ShowProgress();
+        _icon.BalloonTipClicked += (_, _) => { if (_progress == null) OpenMainApp(); };
 
         AgentChannel.Heartbeat();
         _lastHeartbeat = DateTime.UtcNow;
@@ -92,7 +93,19 @@ public sealed class TrayAgent
             _hideIconAt = DateTime.UtcNow.AddSeconds(15);
         }
 
-        // 3. Tray icon + taskbar progress while something is queued or running.
+        // 3. Disk health alerts from the background check.
+        if (DateTime.UtcNow - _lastHealthLook > TimeSpan.FromSeconds(10))
+        {
+            _lastHealthLook = DateTime.UtcNow;
+            foreach (var note in NewHealthNotes())
+            {
+                _icon.Visible = true;
+                _icon.ShowBalloonTip(15000, note.Title, note.Text, note.Serious ? Forms.ToolTipIcon.Error : Forms.ToolTipIcon.Warning);
+                _hideIconAt = DateTime.UtcNow.AddSeconds(30);
+            }
+        }
+
+        // 4. Tray icon + taskbar progress while something is queued or running.
         var active = runs.FirstOrDefault(r => r.Phase == RunPhase.Running)
                      ?? runs.FirstOrDefault(r => r.Phase is RunPhase.Waiting or RunPhase.Postponed or RunPhase.Countdown);
         if (active != null)
@@ -125,6 +138,25 @@ public sealed class TrayAgent
             _hideIconAt ??= DateTime.UtcNow.AddSeconds(15);
             if (DateTime.UtcNow > _hideIconAt) _icon.Visible = false;
         }
+    }
+
+    private DateTime _lastHealthLook;
+    private readonly HashSet<string> _healthShown = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Alerts the health check left since this helper started (each shown once per session).</summary>
+    private List<HealthMonitor.TrayNote> NewHealthNotes()
+    {
+        var notes = new List<HealthMonitor.TrayNote>();
+        try
+        {
+            foreach (var f in Directory.EnumerateFiles(AgentChannel.Folder, "health-*.json").Order())
+            {
+                if (!_healthShown.Add(f) || File.GetLastWriteTimeUtc(f) < _startedUtc) continue;
+                if (System.Text.Json.JsonSerializer.Deserialize<HealthMonitor.TrayNote>(File.ReadAllText(f)) is { } n) notes.Add(n);
+            }
+        }
+        catch { }
+        return notes;
     }
 
     private static string StatusLine(BackgroundStatus s) => s.Phase switch
