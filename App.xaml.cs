@@ -46,7 +46,8 @@ public partial class App : Application
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
             var log = new Logger();
-            try { log.Info(WeeklyReport.Send(log)); Shutdown(0); }
+            // Runs at the due time, at startup and hourly: quiet unless it sends (or can't).
+            try { WeeklyReport.SendScheduled(log); Shutdown(0); }
             catch (Exception ex) { log.Error("Weekly report: " + ex.Message); Shutdown(1); }
             return;
         }

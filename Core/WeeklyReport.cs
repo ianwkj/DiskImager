@@ -11,10 +11,15 @@ public sealed class ReportSettings
     public string ClientName { get; set; } = "";
     /// <summary>Where the PC is or what it's for, e.g. "Front desk".</summary>
     public string Location { get; set; } = "";
-    /// <summary>This PC collects every PC's status notes and emails the weekly report.</summary>
+    /// <summary>This PC may send the weekly report. Several PCs can have this on: the first one that's on after
+    /// the due time sends it, the others skip (see <see cref="WeeklyReport.SendScheduled"/>).</summary>
     public bool SendWeekly { get; set; }
     public DayOfWeek Day { get; set; } = DayOfWeek.Monday;
     public string Time { get; set; } = "08:00";
+    /// <summary>When the report settings were last saved: only due times after this count (no surprise report on saving).</summary>
+    public DateTime? SendingSinceUtc { get; set; }
+    /// <summary>The latest due time this PC has dealt with (sent it, or saw another PC had), so hourly checks stay local.</summary>
+    public DateTime? LastHandledDueUtc { get; set; }
     /// <summary>Stable ID for this PC's status note (survives renaming the PC).</summary>
     public Guid MachineId { get; set; }
 }
@@ -221,18 +226,7 @@ public static class WeeklyReport
     }
 
     /// <summary>Reads every status note this PC can reach (its jobs' destinations) and builds one report per client.</summary>
-    public static List<ClientReport> Build(Logger log, DateTime nowUtc)
-    {
-        WriteStatusNotes(log);
-        var folders = new List<string>();
-        foreach (var group in JobStore.Load().Where(j => j.Destination.Length > 2).GroupBy(j => StatusFolder(j.Destination), StringComparer.OrdinalIgnoreCase))
-        {
-            var first = group.First();
-            try { NetworkShare.Connect(first.Destination, first.NetUser, JobStore.Unprotect(first.NetPasswordProtected), null); } catch { }
-            folders.Add(group.Key);
-        }
-        return Build(folders, nowUtc);
-    }
+    public static List<ClientReport> Build(Logger log, DateTime nowUtc) => Build(ReachableStatusFolders(log), nowUtc);
 
     /// <summary>Builds the reports from the status notes in the given folders.</summary>
     public static List<ClientReport> Build(IEnumerable<string> statusFolders, DateTime nowUtc)
@@ -421,18 +415,208 @@ public static class WeeklyReport
         return days <= 1 ? "Late" : $"{days} days";
     }
 
-    /// <summary>Builds and emails the reports (scheduled task, or "Send report now"). Returns a one-line summary.</summary>
+    /// <summary>"Send report now": builds and emails the reports straight away. Returns a one-line summary.</summary>
     public static string Send(Logger log)
     {
         var settings = AppSettings.Load();
         if (!settings.Email.Enabled) throw new InvalidOperationException("Email isn't set up on this PC (Settings → Email notifications).");
-        var reports = Build(log, DateTime.UtcNow);
+        var folders = ReachableStatusFolders(log);
+        var reports = Build(folders, DateTime.UtcNow);
         if (reports.Count == 0) throw new InvalidOperationException("No status notes were found. Each PC leaves one next to its backups after its next backup run.");
+        SendAll(settings.Email, reports, log);
+        foreach (var f in folders) MarkSent(f, DateTime.UtcNow, settings.Report.MachineId); // counts as this week's report
+        return $"Sent {reports.Count} report{(reports.Count == 1 ? "" : "s")} covering {reports.Sum(r => r.Pcs.Count)} PC(s).";
+    }
+
+    private static void SendAll(EmailSettings email, List<ClientReport> reports, Logger log)
+    {
         foreach (var r in reports)
         {
-            Notifier.Send(settings.Email, r.Subject, r.Text, r.Html);
+            Notifier.Send(email, r.Subject, r.Text, r.Html);
             log.Info($"Weekly report sent: {r.Subject}");
         }
-        return $"Sent {reports.Count} report{(reports.Count == 1 ? "" : "s")} covering {reports.Sum(r => r.Pcs.Count)} PC(s).";
+    }
+
+    /// <summary>Writes this PC's notes, then returns the status folders of its jobs' destinations (connecting to shares).</summary>
+    private static List<string> ReachableStatusFolders(Logger log)
+    {
+        WriteStatusNotes(log);
+        var folders = new List<string>();
+        foreach (var group in JobStore.Load().Where(j => j.Destination.Length > 2).GroupBy(j => StatusFolder(j.Destination), StringComparer.OrdinalIgnoreCase))
+        {
+            var first = group.First();
+            try { NetworkShare.Connect(first.Destination, first.NetUser, JobStore.Unprotect(first.NetPasswordProtected), null); } catch { }
+            folders.Add(group.Key);
+        }
+        return folders;
+    }
+
+    // ------------------------------------------------------------------ shared sending
+    // Any number of PCs can have "this PC can send the weekly report" ticked. After the due time each of them
+    // checks (at the due time, at startup and hourly). The first to claim a status folder sends the report for it;
+    // the claim is a lock file created atomically on the share, and a marker records that this week's report went out.
+
+    private const string SentMarkerFile = "_report-sent.json";
+    private const string ClaimFile = "_report-sending.lock";
+    /// <summary>A claim older than this belongs to a PC that crashed or lost the network mid-send; another PC may take over.</summary>
+    public static readonly TimeSpan ClaimTimeout = TimeSpan.FromMinutes(30);
+
+    public sealed class SentMarker
+    {
+        public DateTime SentUtc { get; set; }
+        public string SentBy { get; set; } = "";
+        public Guid SentById { get; set; }
+    }
+
+    public enum Claim { Claimed, AlreadySent, BeingSent, Unreachable }
+
+    /// <summary>The most recent scheduled time (local) at or before <paramref name="nowLocal"/>.</summary>
+    public static DateTime LastDue(DayOfWeek day, string time, DateTime nowLocal)
+    {
+        if (!TimeSpan.TryParse(time, out var t)) t = new TimeSpan(8, 0, 0);
+        var due = nowLocal.Date.AddDays(-(((int)nowLocal.DayOfWeek - (int)day + 7) % 7)) + t;
+        return due > nowLocal ? due.AddDays(-7) : due;
+    }
+
+    /// <summary>Tries to become the PC that sends this week's report for one status folder.</summary>
+    public static Claim TryClaim(string folder, DateTime dueUtc, DateTime nowUtc)
+    {
+        if (!Directory.Exists(folder)) return Claim.Unreachable;
+        string claim = Path.Combine(folder, ClaimFile);
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            try
+            {
+                // CreateNew is atomic, also on network shares: only one PC can create the claim.
+                using (var fs = new FileStream(claim, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                using (var w = new StreamWriter(fs))
+                    w.Write($"{Environment.MachineName} {nowUtc:O}");
+                File.SetLastWriteTimeUtc(claim, nowUtc);
+                if (ReadMarker(folder) is { } m && m.SentUtc >= dueUtc)
+                {
+                    Release(folder);
+                    return Claim.AlreadySent;
+                }
+                return Claim.Claimed;
+            }
+            catch (IOException) when (File.Exists(claim))
+            {
+                if (ReadMarker(folder) is { } m && m.SentUtc >= dueUtc) return Claim.AlreadySent;
+                if (nowUtc - File.GetLastWriteTimeUtc(claim) < ClaimTimeout) return Claim.BeingSent;
+                try { File.Delete(claim); } catch { return Claim.BeingSent; } // stale: the other PC died mid-send
+            }
+            catch (Exception) { return Claim.Unreachable; }
+        }
+        return Claim.BeingSent;
+    }
+
+    public static void Release(string folder)
+    {
+        try { File.Delete(Path.Combine(folder, ClaimFile)); } catch { }
+    }
+
+    public static SentMarker? ReadMarker(string folder)
+    {
+        try
+        {
+            string f = Path.Combine(folder, SentMarkerFile);
+            return File.Exists(f) ? JsonSerializer.Deserialize<SentMarker>(File.ReadAllText(f), Json) : null;
+        }
+        catch { return null; }
+    }
+
+    public static void MarkSent(string folder, DateTime nowUtc, Guid machineId)
+    {
+        try
+        {
+            string f = Path.Combine(folder, SentMarkerFile);
+            File.WriteAllText(f + ".tmp", JsonSerializer.Serialize(new SentMarker { SentUtc = nowUtc, SentBy = Environment.MachineName, SentById = machineId }, Json));
+            File.Move(f + ".tmp", f, overwrite: true);
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// The scheduled check (DiskImager.exe --weekly-report): sends this week's report if it's due, nobody has
+    /// sent it yet, and this PC wins the claim. Cheap when there's nothing to do. Returns a one-line summary.
+    /// </summary>
+    public static string SendScheduled(Logger log)
+    {
+        var settings = AppSettings.Load();
+        return SendScheduled(log, DateTime.UtcNow, settings.Report, settings.Email,
+            r =>
+            {
+                var latest = AppSettings.Load(); // only these two fields: the window may have saved other settings meanwhile
+                latest.Report.SendingSinceUtc = r.SendingSinceUtc;
+                latest.Report.LastHandledDueUtc = r.LastHandledDueUtc;
+                latest.Save();
+            },
+            ReachableStatusFolders, Build, (email, reports) => SendAll(email, reports, log));
+    }
+
+    /// <summary>The same, with settings, folders, building and sending passed in so it can be tested.</summary>
+    public static string SendScheduled(Logger log, DateTime nowUtc, ReportSettings r, EmailSettings email, Action<ReportSettings> save,
+        Func<Logger, List<string>> folders, Func<IEnumerable<string>, DateTime, List<ClientReport>> build,
+        Action<EmailSettings, List<ClientReport>> send)
+    {
+        if (!r.SendWeekly) return "This PC doesn't send the weekly report.";
+        if (r.SendingSinceUtc == null)
+        {
+            // Upgraded from a version that sent at a fixed time: this week's report may already have gone out.
+            r.SendingSinceUtc = nowUtc;
+            save(r);
+            return "Not due yet.";
+        }
+        var dueLocal = LastDue(r.Day, r.Time, nowUtc.ToLocalTime());
+        var dueUtc = dueLocal.ToUniversalTime();
+        if (dueUtc < r.SendingSinceUtc) return "Not due yet.";
+        if (r.LastHandledDueUtc is DateTime handled && handled >= dueUtc) return "This week's report has already gone out.";
+        if (!email.Enabled)
+        {
+            log.Warn("Weekly report: this PC can't send it because email isn't set up here (Settings → Email notifications).");
+            return "Email isn't set up on this PC.";
+        }
+
+        var claimed = new List<string>();
+        var others = new List<string>();
+        bool waiting = false;
+        foreach (var f in folders(log))
+        {
+            switch (TryClaim(f, dueUtc, nowUtc))
+            {
+                case Claim.Claimed: claimed.Add(f); break;
+                case Claim.AlreadySent: others.Add(ReadMarker(f)?.SentBy ?? "another PC"); break;
+                case Claim.BeingSent: waiting = true; break;
+            }
+        }
+
+        string result;
+        if (claimed.Count > 0)
+        {
+            try
+            {
+                var reports = build(claimed, nowUtc);
+                if (reports.Count > 0) send(email, reports);
+                foreach (var f in claimed) MarkSent(f, nowUtc, r.MachineId);
+                result = $"Sent this week's report ({reports.Count} client{(reports.Count == 1 ? "" : "s")}).";
+            }
+            catch (Exception ex)
+            {
+                log.Warn("Weekly report: couldn't send it, so another PC can try: " + ex.Message);
+                return "Couldn't send the report: " + ex.Message;
+            }
+            finally
+            {
+                foreach (var f in claimed) Release(f);
+            }
+        }
+        else if (waiting) return "Another PC is sending this week's report right now.";
+        else if (others.Count > 0) result = $"This week's report was already sent by {string.Join(", ", others.Distinct())}.";
+        else return "No backup location could be reached; will try again later.";
+
+        r.LastHandledDueUtc = dueUtc;
+        save(r);
+        log.Info("Weekly report: " + result);
+        return result;
     }
 }

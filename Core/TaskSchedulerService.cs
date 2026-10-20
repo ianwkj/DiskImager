@@ -318,7 +318,7 @@ public static class TaskSchedulerService
             <?xml version="1.0" encoding="UTF-16"?>
             <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
               <RegistrationInfo>
-                <Description>DiskImager: emails the weekly backup report for this office.</Description>
+                <Description>DiskImager: emails the weekly backup report for this office (the first PC that's on after the due time sends it).</Description>
               </RegistrationInfo>
               <Triggers>
                 <CalendarTrigger>
@@ -329,6 +329,15 @@ public static class TaskSchedulerService
                     <WeeksInterval>1</WeeksInterval>
                   </ScheduleByWeek>
                 </CalendarTrigger>
+                <BootTrigger>
+                  <Enabled>true</Enabled>
+                  <Delay>PT5M</Delay>
+                </BootTrigger>
+                <TimeTrigger>
+                  <StartBoundary>{DateTime.Today:yyyy-MM-dd}T00:17:00</StartBoundary>
+                  <Enabled>true</Enabled>
+                  <Repetition><Interval>PT1H</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition>
+                </TimeTrigger>
               </Triggers>
               <Principals>
                 <Principal id="Author">

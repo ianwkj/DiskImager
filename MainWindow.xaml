@@ -354,15 +354,16 @@
                                     <TextBlock Style="{StaticResource Hint}" Text="e.g. Front desk. The signed-in user is added automatically." VerticalAlignment="Center" Margin="10,0,0,0"/>
                                 </StackPanel>
                                 <CheckBox x:Name="ReportBox" Grid.Row="2" Grid.Column="1" Margin="0,12,0,0" Click="ReportBox_Click"
-                                          Content="Send this office's weekly backup report from this PC"/>
+                                          Content="This PC can send the office's weekly backup report"/>
                                 <StackPanel x:Name="ReportWhenPanel" Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Margin="26,8,0,0">
                                     <TextBlock Text="Every" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                     <ComboBox x:Name="ReportDayBox" Width="130"/>
-                                    <TextBlock Text="at" VerticalAlignment="Center" Margin="10,0,8,0"/>
+                                    <TextBlock Text="from" VerticalAlignment="Center" Margin="10,0,8,0"/>
                                     <TextBox x:Name="ReportTimeBox" Width="64" HorizontalContentAlignment="Center"/>
+                                    <TextBlock Text="or as soon as one of these PCs is next on" Style="{StaticResource Hint}" VerticalAlignment="Center" Margin="10,0,0,0"/>
                                 </StackPanel>
                                 <TextBlock Grid.Row="4" Grid.Column="1" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="26,6,0,0"
-                                           Text="After every backup, each PC leaves a status note in a _DiskImagerStatus folder at the top of the share or drive it backs up to. This PC reads the notes in the places its own backups go and emails one report per client, including PCs that stopped backing up or reporting. Choose one PC per office, ideally one that's always on."/>
+                                           Text="Tick this on two or three PCs in the office, with the same day and time. After that time, the first of them that's on sends the report and the others skip it, so it still goes out when a PC is off. Each PC leaves a status note in a _DiskImagerStatus folder at the top of the share or drive it backs up to; the report covers every PC there, including ones that stopped backing up or reporting."/>
                                 <Border Grid.Row="5" Grid.Column="1" Background="#F8FAFC" BorderBrush="{StaticResource CardBorder}" BorderThickness="1"
                                         CornerRadius="8" Padding="12,10" Margin="26,10,0,0">
                                     <DockPanel>
@@ -378,7 +379,7 @@
     Server01\
     _DiskImagerStatus\         ← every PC's status note (made automatically)</TextBlock>
                                             <TextBlock Style="{StaticResource Hint}" Margin="0,6,0,0" TextWrapping="Wrap"
-                                                       Text="Each PC's NAS login must be allowed to create folders at the top of the share. PCs that back up to a different share, or to their own USB drive, don't appear in this PC's report."/>
+                                                       Text="Each PC's NAS login must be allowed to create folders and files at the top of the share. PCs that back up to a different share, or to their own USB drive, don't appear in the report."/>
                                         </StackPanel>
                                     </DockPanel>
                                 </Border>

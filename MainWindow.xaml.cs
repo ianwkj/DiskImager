@@ -495,6 +495,7 @@ public partial class MainWindow : Window
         s.Report.SendWeekly = ReportBox.IsChecked == true;
         s.Report.Day = (ReportDayBox.SelectedItem as ComboBoxItem)?.Tag is DayOfWeek d ? d : DayOfWeek.Monday;
         s.Report.Time = time;
+        s.Report.SendingSinceUtc = DateTime.UtcNow; // only due times after this save count: saving never sends a late report
         try
         {
             s.Save();
@@ -503,7 +504,9 @@ public partial class MainWindow : Window
                 TaskSchedulerService.SyncReportTask(_log);
                 WeeklyReport.WriteStatusNotes(_log);
             });
-            ReportStatus.Text = s.Report.SendWeekly ? $"Saved. The report goes out every {s.Report.Day} at {time}." : "Saved.";
+            ReportStatus.Text = s.Report.SendWeekly
+                ? $"Saved. Every {s.Report.Day} from {time}, the first PC with this ticked that's on sends the report."
+                : "Saved.";
         }
         catch (Exception ex) { ReportStatus.Text = "Couldn't save: " + ex.Message; }
     }

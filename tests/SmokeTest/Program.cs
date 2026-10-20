@@ -793,6 +793,88 @@ Check(JobStore.Unprotect(JobStore.Protect("s3cret!")) == "s3cret!", "NAS passwor
         "report: problems explained in plain words, with location and signed-in user");
     Check(acme != null && !acme.Html.Contains("SERVER-01") && acme.Text.Contains("RECEPTION-PC"), "report: other clients' PCs aren't included; plain-text version too");
     File.WriteAllText(Path.Combine(work, "weekly-report-sample.html"), acme?.Html ?? "");
+
+    // ---- Shared sending: several PCs may send; the first one on after the due time does, the others skip.
+    {
+        var sun = new DateTime(2026, 10, 18, 8, 0, 0); // a Sunday, local time
+        Check(WeeklyReport.LastDue(DayOfWeek.Sunday, "08:00", sun.AddHours(26)) == sun
+              && WeeklyReport.LastDue(DayOfWeek.Sunday, "08:00", sun.AddMinutes(-1)) == sun.AddDays(-7)
+              && WeeklyReport.LastDue(DayOfWeek.Sunday, "08:00", sun) == sun,
+            "shared report: due time is the latest Sunday 08:00 at or before now");
+
+        string shared = Path.Combine(work, "report-shared", WeeklyReport.FolderName);
+        Directory.CreateDirectory(shared);
+        foreach (var p in pcs) File.WriteAllText(Path.Combine(shared, p.MachineId + ".json"), System.Text.Json.JsonSerializer.Serialize(p, JobStore.Json));
+        var email = new EmailSettings { Enabled = true, Host = "test", To = "x@y" };
+        var sentBy = new List<string>();
+        ReportSettings Sender() => new() { SendWeekly = true, Day = DayOfWeek.Sunday, Time = "08:00", MachineId = Guid.NewGuid(),
+            SendingSinceUtc = sun.AddDays(-2).ToUniversalTime() }; // saved on the Friday before
+        string Run(string name, ReportSettings r, DateTime local, bool fail = false) =>
+            WeeklyReport.SendScheduled(log, local.ToUniversalTime(), r, email, _ => { }, _ => new List<string> { shared }, WeeklyReport.Build,
+                (_, reps) => { if (fail) throw new IOException("SMTP server unreachable"); sentBy.Add(name); });
+        bool NoClaimLeft() => !File.Exists(Path.Combine(shared, "_report-sending.lock"));
+
+        var a = Sender(); var b = Sender(); var c = Sender();
+        Check(Run("A", a, sun.AddMinutes(-30)) == "Not due yet." && sentBy.Count == 0, "shared report: nothing before the due time");
+        string ra = Run("A", a, sun.AddMinutes(17));
+        Check(sentBy.SequenceEqual(new[] { "A" }) && ra.StartsWith("Sent") && NoClaimLeft(), $"shared report: the first PC on after the due time sends it ({ra})");
+        string rb = Run("B", b, sun.AddHours(3));
+        Check(sentBy.Count == 1 && rb.Contains("already sent by"), $"shared report: a second PC skips it ({rb})");
+        Check(Run("A", a, sun.AddHours(4)).Contains("already gone out") && sentBy.Count == 1, "shared report: hourly checks after that stay quiet");
+        Check(Run("B", b, sun.AddHours(5)).Contains("already gone out"), "shared report: …on every PC");
+
+        // Next week A is off: B is first on, on Tuesday.
+        string rb2 = Run("B", b, sun.AddDays(9));
+        Check(sentBy.SequenceEqual(new[] { "A", "B" }), $"shared report: next week, the PC that's on sends it, even days late ({rb2})");
+        Check(Run("A", a, sun.AddDays(9).AddHours(2)).Contains("already sent by") && sentBy.Count == 2, "shared report: the PC that was off doesn't send it again");
+
+        // Week 3: A starts sending and its claim is in place; B must wait, then take over once the claim is stale.
+        var wk3 = sun.AddDays(14).AddMinutes(5);
+        Check(WeeklyReport.TryClaim(shared, sun.AddDays(14).ToUniversalTime(), wk3.ToUniversalTime()) == WeeklyReport.Claim.Claimed, "shared report: claim taken");
+        string waiting = Run("B", b, wk3.AddMinutes(1));
+        Check(waiting.Contains("right now") && sentBy.Count == 2, $"shared report: while another PC is sending, this one waits ({waiting})");
+        File.SetLastWriteTimeUtc(Path.Combine(shared, "_report-sending.lock"), wk3.ToUniversalTime().AddHours(-2));
+        string takeover = Run("B", b, wk3.AddHours(1));
+        Check(sentBy.Count == 3 && sentBy[2] == "B" && NoClaimLeft(), $"shared report: a claim left by a PC that died mid-send is taken over ({takeover})");
+
+        // Week 4: the first PC can't reach the mail server; the next PC on sends it.
+        var wk4 = sun.AddDays(21).AddMinutes(20);
+        string failed = Run("A", a, wk4, fail: true);
+        Check(failed.StartsWith("Couldn't send") && sentBy.Count == 3 && NoClaimLeft() && a.LastHandledDueUtc < sun.AddDays(21).ToUniversalTime(),
+            "shared report: a failed send releases the claim and isn't counted as sent");
+        Run("C", c, wk4.AddHours(1));
+        Check(sentBy.Count == 4 && sentBy[3] == "C", "shared report: another PC sends it after a failure");
+        Run("A", a, wk4.AddHours(2));
+        Check(sentBy.Count == 4, "shared report: …and the PC that failed doesn't send a second copy later");
+
+        // Two PCs claiming at the same instant: exactly one wins.
+        int raceWins = 0;
+        for (int round = 0; round < 20; round++)
+        {
+            var due = sun.AddDays(28 + 7 * round).ToUniversalTime();
+            int wins = 0;
+            Parallel.For(0, 4, _ => { if (WeeklyReport.TryClaim(shared, due, due.AddMinutes(1)) == WeeklyReport.Claim.Claimed) Interlocked.Increment(ref wins); });
+            if (wins == 1) raceWins++;
+            WeeklyReport.MarkSent(shared, due.AddMinutes(1), Guid.Empty);
+            WeeklyReport.Release(shared);
+        }
+        Check(raceWins == 20, $"shared report: PCs checking at the same moment never both send ({raceWins}/20 rounds had exactly one winner)");
+
+        // Upgrades and saving.
+        var upgraded = new ReportSettings { SendWeekly = true, Day = DayOfWeek.Sunday, Time = "08:00" };
+        var savedSince = upgraded.SendingSinceUtc;
+        Check(Run("U", upgraded, sun.AddDays(400).AddHours(2)) == "Not due yet." && upgraded.SendingSinceUtc != null,
+            "shared report: a PC upgraded from 1.3.0 doesn't send a duplicate of this week's report");
+        var justSaved = new ReportSettings { SendWeekly = true, Day = DayOfWeek.Sunday, Time = "08:00", SendingSinceUtc = sun.AddDays(500).AddHours(3).ToUniversalTime() };
+        Check(Run("S", justSaved, sun.AddDays(500).AddHours(4)) == "Not due yet.", "shared report: saving the settings after the due time doesn't send a late report");
+        Check(Run("N", new ReportSettings { SendWeekly = false }, sun.AddDays(600)).Contains("doesn't send"), "shared report: PCs without the box ticked never send");
+
+        string xml = TaskSchedulerService.BuildReportXml(@"C:\Program Files\DiskImager\DiskImager.exe", DayOfWeek.Sunday, "08:00");
+        var doc = System.Xml.Linq.XDocument.Parse(xml.Replace("encoding=\"UTF-16\"", ""));
+        System.Xml.Linq.XNamespace ns = "http://schemas.microsoft.com/windows/2004/02/mit/task";
+        Check(doc.Descendants(ns + "Sunday").Any() && doc.Descendants(ns + "BootTrigger").Any() && doc.Descendants(ns + "Interval").Single().Value == "PT1H",
+            "shared report: task checks at the due time, at startup and hourly");
+    }
 }
 
 // ---- NTFS reader, file-level restore and change tracking on real NTFS volumes.
