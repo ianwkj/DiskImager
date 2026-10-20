@@ -41,6 +41,7 @@ static class UiTest
             Check(dlg != null, "job editor opens");
             if (dlg == null) return 1;
 
+            GoStep(dlg, "Schedule");
             var time = WaitFor(() => ById(dlg, "TimeBox"), 3);
             Check(time != null, "time box found");
             if (time != null)
@@ -63,6 +64,7 @@ static class UiTest
                 Check(Value(time) == "09:00", $"leaving the box completes it to 09:00 (got '{Value(time)}')");
             }
 
+            GoStep(dlg, "Location");
             var dest = ById(dlg, "DestBox");
             if (dest != null)
             {
@@ -75,6 +77,7 @@ static class UiTest
                 ShotWindow(shots, "ui-3-network-login", dlg);
             }
 
+            GoStep(dlg, "Old backups");
             var keep = ById(dlg, "KeepBox");
             if (keep != null)
             {
@@ -349,6 +352,166 @@ static class UiTest
         return failures == 0 ? 0 : 1;
     }
 
+    /// <summary>Selects a step in the job editor's step rail.</summary>
+    private static void GoStep(AutomationElement dlg, string step)
+    {
+        var item = dlg.FindFirst(TreeScope.Descendants, new AndCondition(
+            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem),
+            new PropertyCondition(AutomationElement.NameProperty, step)));
+        ((SelectionItemPattern?)item?.GetCurrentPattern(SelectionItemPattern.Pattern))?.Select();
+        Thread.Sleep(500);
+    }
+
+    private static AutomationElement? Button(AutomationElement root, string name) =>
+        All(root, ControlType.Button).FirstOrDefault(b => b.Current.Name == name);
+
+    private static bool Shows(AutomationElement root, string text) => All(root, ControlType.Text).Any(t => t.Current.Name.Contains(text));
+
+    /// <summary>
+    /// The step-by-step job editor, driven only through UI Automation (no keys are pressed, nothing is saved):
+    /// dotnet run -- --wizard exe shots
+    /// </summary>
+    public static int WizardUi(string exe, string shots)
+    {
+        int failures = 0;
+        void Check(bool ok, string what) { Console.WriteLine($"{(ok ? "PASS" : "FAIL")}  {what}"); if (!ok) failures++; }
+        Directory.CreateDirectory(shots);
+        var app = Process.Start(new ProcessStartInfo(exe, "--no-elevate") { UseShellExecute = false })!;
+        AutomationElement? Popup(AutomationElement owner, string title) => WaitFor(() =>
+            owner.FindFirst(TreeScope.Children, new PropertyCondition(AutomationElement.NameProperty, title))
+            ?? AutomationElement.RootElement.FindFirst(TreeScope.Children, new AndCondition(
+                new PropertyCondition(AutomationElement.NameProperty, title), new PropertyCondition(AutomationElement.ProcessIdProperty, app.Id))), 5);
+        void Close(AutomationElement? box) { if (box != null && Button(box, "OK") is { } ok) Invoke(ok); Thread.Sleep(500); }
+        try
+        {
+            var main = WaitFor(() => { app.Refresh(); return app.MainWindowHandle != IntPtr.Zero ? AutomationElement.FromHandle(app.MainWindowHandle) : null; }, 20)!;
+            Thread.Sleep(2500);
+            Select(main, "Scheduled backups");
+            Invoke(All(main, ControlType.Button).First(b => b.Current.Name.StartsWith("New job")));
+            var dlg = WaitFor(() => main.FindFirst(TreeScope.Children, new PropertyCondition(AutomationElement.NameProperty, "New scheduled backup")), 8);
+            Check(dlg != null, "wizard: New scheduled backup opens");
+            if (dlg == null) return 1;
+            Thread.Sleep(800);
+
+            var steps = All(dlg, ControlType.ListItem).Select(i => i.Current.Name)
+                .Where(n => n is "Disk" or "Location" or "Exclude folders" or "Encryption" or "Schedule" or "Old backups" or "Review").ToList();
+            Check(steps.SequenceEqual(new[] { "Disk", "Location", "Exclude folders", "Encryption", "Schedule", "Old backups", "Review" }),
+                $"wizard: seven steps in order ({string.Join(", ", steps)})");
+            Check(ById(dlg, "DiskList") != null && ById(dlg, "DestBox") == null && Shows(dlg, "Step 1 of 7"), "wizard: opens on step 1, one step at a time");
+            Check(Button(dlg, "Back") is not { } back || back.Current.IsOffscreen, "wizard: no Back on the first step");
+            ShotWindow(shots, "wizard-1-disk", dlg);
+
+            // Step 1 needs a name.
+            SetValue(ById(dlg, "NameBox")!, "");
+            Invoke(Button(dlg, "Next")!);
+            var warn = Popup(dlg, "Check the details");
+            Check(warn != null && Shows(warn, "Give the job a name"), "wizard: Next checks the step (job name needed)");
+            Close(warn);
+            Check(ById(dlg, "NameBox") != null, "wizard: stays on the step that needs fixing");
+            SetValue(ById(dlg, "NameBox")!, "Wizard test");
+            Invoke(Button(dlg, "Next")!);
+            Thread.Sleep(600);
+
+            // Step 2: location.
+            var dest = ById(dlg, "DestBox");
+            Check(dest != null && Shows(dlg, "Step 2 of 7"), "wizard: Next goes to Location");
+            SetValue(dest!, @"E:\Backups");
+            Thread.Sleep(300);
+            Check(ById(dlg, "UserBox") == null, "wizard: no network login for a local folder");
+            SetValue(dest!, @"\\NAS\Backups\WizardTest");
+            Thread.Sleep(300);
+            Check(ById(dlg, "UserBox") != null, "wizard: network login appears for a NAS path");
+            ShotWindow(shots, "wizard-2-location", dlg);
+            Invoke(Button(dlg, "Next")!);
+            Thread.Sleep(600);
+
+            // Step 3: folders to leave out.
+            Check(Button(dlg, "Skip") != null && Button(dlg, "Browse for a folder…") != null, "wizard: Exclude step has Skip and Browse for a folder");
+            string sys = Environment.GetEnvironmentVariable("SystemDrive") ?? "C:";
+            Invoke(Button(dlg, "Downloads")!);
+            Thread.Sleep(400);
+            Check(Shows(dlg, sys + @"\Users\*\Downloads") && Shows(dlg, "Left out (1)"), "wizard: Downloads button adds it to the list");
+            Invoke(Button(dlg, "Downloads")!);
+            Thread.Sleep(400);
+            Check(!Shows(dlg, sys + @"\Users\*\Downloads") && Shows(dlg, "Nothing is left out"), "wizard: clicking it again takes it out");
+            Invoke(Button(dlg, "Temporary files")!);
+            Thread.Sleep(400);
+            Check(Shows(dlg, "Left out (2)"), "wizard: Temporary files adds both temp folders");
+            SetValue(ById(dlg, "ExcludePathBox")!, @"D:\Scratch\Renders");
+            Invoke(Button(dlg, "Add")!);
+            Thread.Sleep(400);
+            Check(Shows(dlg, @"D:\Scratch\Renders") && Shows(dlg, "Left out (3)"), "wizard: a typed folder is added");
+            SetValue(ById(dlg, "ExcludePathBox")!, @"C:\Windows");
+            Invoke(Button(dlg, "Add")!);
+            warn = Popup(dlg, "Check the details");
+            Check(warn != null && Shows(warn, "unable to start"), "wizard: leaving out C:\\Windows is refused with a reason");
+            Close(warn);
+            var removes = All(dlg, ControlType.Button).Where(b => b.Current.Name == "Remove").ToList();
+            if (removes.Count > 0) Invoke(removes[^1]);
+            Thread.Sleep(400);
+            Check(!Shows(dlg, @"D:\Scratch\Renders") && Shows(dlg, "Left out (2)"), "wizard: Remove takes a folder off the list");
+            ShotWindow(shots, "wizard-3-exclude", dlg);
+            Invoke(Button(dlg, "Skip")!);
+            Thread.Sleep(600);
+
+            // Step 4: encryption.
+            Check(Shows(dlg, "Encrypt these backups?") && Button(dlg, "Skip") != null, "wizard: Skip goes on to Encryption, which can be skipped too");
+            var encCard = All(dlg, ControlType.ListItem).FirstOrDefault(i => All(i, ControlType.Text).Any(t => t.Current.Name.StartsWith("Encrypt with a password")));
+            ((SelectionItemPattern?)encCard?.GetCurrentPattern(SelectionItemPattern.Pattern))?.Select();
+            Thread.Sleep(400);
+            Check(ById(dlg, "EncPass1")?.Current.IsEnabled == true, "wizard: choosing encryption turns on the password boxes");
+            ShotWindow(shots, "wizard-4-encryption", dlg);
+            Invoke(Button(dlg, "Next")!);
+            warn = Popup(dlg, "Check the details");
+            Check(warn != null && Shows(warn, "at least 8 characters"), "wizard: encryption needs a password");
+            Close(warn);
+            var noEnc = All(dlg, ControlType.ListItem).FirstOrDefault(i => All(i, ControlType.Text).Any(t => t.Current.Name == "No encryption"));
+            ((SelectionItemPattern?)noEnc?.GetCurrentPattern(SelectionItemPattern.Pattern))?.Select();
+            Thread.Sleep(300);
+            Invoke(Button(dlg, "Next")!);
+            Thread.Sleep(600);
+
+            // Step 5–7.
+            Check(ById(dlg, "TimeBox") != null, "wizard: Schedule step");
+            ShotWindow(shots, "wizard-5-schedule", dlg);
+            Invoke(Button(dlg, "Next")!);
+            Thread.Sleep(600);
+            Check(ById(dlg, "KeepBox") != null, "wizard: Old backups step");
+            Invoke(Button(dlg, "Next")!);
+            Thread.Sleep(700);
+            Check(Shows(dlg, "Check and save") && Button(dlg, "Save job") != null && Button(dlg, "Next") == null, "wizard: last step is Review, with Save job");
+            Check(Shows(dlg, "Wizard test") && Shows(dlg, @"\\NAS\Backups\WizardTest") && Shows(dlg, @"\Windows\Temp") && Shows(dlg, "Off"),
+                "wizard: Review sums up name, location, folders left out and encryption");
+            ShotWindow(shots, "wizard-7-review", dlg);
+
+            // Jump back with the rail, then cancel (nothing is saved).
+            GoStep(dlg, "Location");
+            Check(Value(ById(dlg, "DestBox")!) == @"\\NAS\Backups\WizardTest", "wizard: clicking a step on the left goes back to it, with what was entered");
+            Invoke(Button(dlg, "Cancel")!);
+            Thread.Sleep(800);
+            Check(main.FindFirst(TreeScope.Children, new PropertyCondition(AutomationElement.NameProperty, "New scheduled backup")) == null, "wizard: Cancel closes it");
+
+            // Image disk (one-off): same steps, with Backup type instead of Schedule, ending in Start backup.
+            Select(main, "Disks");
+            Invoke(All(main, ControlType.Button).First(b => b.Current.Name.StartsWith("Image disk")));
+            var once = WaitFor(() => main.FindFirst(TreeScope.Children, new PropertyCondition(AutomationElement.NameProperty, "Image a disk now")), 8);
+            Check(once != null, "image disk: opens the same step-by-step window");
+            if (once != null)
+            {
+                Thread.Sleep(800);
+                var names = All(once, ControlType.ListItem).Select(i => i.Current.Name).ToList();
+                Check(names.Contains("Backup type") && !names.Contains("Schedule"), "image disk: Backup type step instead of Schedule");
+                GoStep(once, "Review");
+                Check(Button(once, "Start backup") != null, "image disk: last step says Start backup");
+                Invoke(Button(once, "Cancel")!);
+                Thread.Sleep(600);
+            }
+        }
+        finally { try { app.Kill(); } catch { } }
+        Console.WriteLine(failures == 0 ? "WIZARD TESTS PASSED" : $"{failures} WIZARD TEST(S) FAILED");
+        return failures == 0 ? 0 : 1;
+    }
+
     /// <summary>
     /// Small screens: the app is told the screen's usable area is smaller (DISKIMAGER_TEST_WORKAREA) and the window
     /// positions are read back (no keys are pressed). dotnet run -- --screenfit exe
@@ -410,11 +573,12 @@ static class UiTest
                 {
                     Thread.Sleep(800);
                     var r = dlg.Current.BoundingRectangle;
-                    double s = (double)dlg.Current.BoundingRectangle.Width / 680;
+                    double s = System.Windows.Forms.Screen.PrimaryScreen!.Bounds.Width / System.Windows.SystemParameters.PrimaryScreenWidth; // pixels per DIP
                     Check(r.Top >= -1 && r.Height / s <= 560 - 24 + 2 && r.Bottom / s <= 560 + 2,
                         $"short screen: job editor fits ({r.Height / s:0} of 560 tall, from {r.Top / s:0} to {r.Bottom / s:0})");
-                    var save = All(dlg, ControlType.Button).FirstOrDefault(b => b.Current.Name == "Save job");
-                    Check(save != null, "short screen: the Save job button is still there (reached by scrolling)");
+                    var next = All(dlg, ControlType.Button).FirstOrDefault(b => b.Current.Name == "Next");
+                    Check(next != null && !next.Current.IsOffscreen && next.Current.BoundingRectangle.Bottom / s <= 560 + 2,
+                        "short screen: the Next button in the bottom bar is on screen without scrolling");
                 }
             }
         }
