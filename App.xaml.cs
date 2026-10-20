@@ -68,6 +68,16 @@ public partial class App : Application
             return;
         }
 
+        // Only one DiskImager window at a time (checked before the admin prompt so a second click doesn't ask for it).
+        bool opensWindow = !e.Args.Any(a => a is "--cli" or "--configure" or "--reschedule" or "--uninstall");
+        if (opensWindow && MainWindowRunning())
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            AlreadyRunning();
+            Shutdown(0);
+            return;
+        }
+
         // The main window needs admin rights (raw disk access, snapshots, Task Scheduler).
         // The exe itself doesn't demand them, so the tray helper above can run as a normal user.
         if (!IsElevated() && !e.Args.Contains("--no-elevate"))
@@ -130,6 +140,15 @@ public partial class App : Application
             return;
         }
 
+        // Claim the one-window lock. A window that's just closing (e.g. restarting after an update) gets a moment to finish.
+        if (!ClaimMainWindow())
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            AlreadyRunning();
+            Shutdown(0);
+            return;
+        }
+
         DispatcherUnhandledException += (_, ex) =>
         {
             MessageBox.Show(ex.Exception.Message, "DiskImager", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -164,6 +183,60 @@ public partial class App : Application
             MessageBox.Show("DiskImager couldn't be fully removed: " + ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
+
+    // Global: also covers another user signed in to the same PC (e.g. a server with several remote sessions),
+    // since two windows working on the same disks at once is never safe.
+    private const string MainWindowMutex = @"Global\DiskImager.MainWindow";
+    private Mutex? _mainMutex;
+
+    private static bool MainWindowRunning()
+    {
+        try
+        {
+            if (!Mutex.TryOpenExisting(MainWindowMutex, out var m)) return false;
+            m.Dispose();
+            return true;
+        }
+        catch (UnauthorizedAccessException) { return true; } // exists, owned by an elevated window
+    }
+
+    private bool ClaimMainWindow()
+    {
+        try
+        {
+            _mainMutex = new Mutex(false, MainWindowMutex);
+            try { return _mainMutex.WaitOne(TimeSpan.FromSeconds(3)); }
+            catch (AbandonedMutexException) { return true; } // the previous window crashed; the lock is ours now
+        }
+        catch (UnauthorizedAccessException) { return false; }
+    }
+
+    /// <summary>Tells the user DiskImager is already open and brings that window to the front if it's in this session.</summary>
+    private static void AlreadyRunning()
+    {
+        IntPtr existing = IntPtr.Zero;
+        try
+        {
+            int session = Process.GetCurrentProcess().SessionId;
+            existing = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(Environment.ProcessPath!))
+                .Where(p => p.Id != Environment.ProcessId && p.SessionId == session && p.MainWindowHandle != IntPtr.Zero)
+                .Select(p => p.MainWindowHandle).FirstOrDefault();
+        }
+        catch { }
+        MessageBox.Show(existing != IntPtr.Zero
+                ? "DiskImager is already running.\n\nClick OK to switch to it."
+                : "DiskImager is already running.\n\nOnly one DiskImager window can be open at a time. It may be minimised, or open in another user's session on this PC.",
+            "DiskImager", MessageBoxButton.OK, MessageBoxImage.Information);
+        if (existing != IntPtr.Zero)
+        {
+            if (IsIconic(existing)) ShowWindow(existing, 9); // SW_RESTORE
+            SetForegroundWindow(existing);
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr h);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr h, int cmd);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool IsIconic(IntPtr h);
 
     private static bool IsElevated()
     {
