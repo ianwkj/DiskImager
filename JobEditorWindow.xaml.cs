@@ -473,7 +473,8 @@ public partial class JobEditorWindow : Window
             OthersHint.Text = "Choose where the backups go first (the Location step).";
             return;
         }
-        string root = Path.GetDirectoryName(WeeklyReport.StatusFolder(dest)) ?? dest;
+        string root;
+        try { root = WeeklyReport.LocationRoot(dest); } catch { root = dest; }
         OthersWhere.Text = $"Backup times other PCs shared in {root}";
         OthersHint.Text = "Checking other PCs' backup times…";
         bool net = NetworkShare.IsNetworkPath(dest);
@@ -484,7 +485,7 @@ public partial class JobEditorWindow : Window
         {
             var others = await Task.Run(() =>
             {
-                if (net) NetworkShare.Connect(dest, user.Length > 0 ? user : null, pass, null);
+                if (net && WeeklyReport.TestStatusFolder == null) NetworkShare.Connect(dest, user.Length > 0 ? user : null, pass, null);
                 return ScheduleClash.Others(dest, WeeklyReport.EnsureMachineId().MachineId, jobName);
             });
             if (dest != _othersFor) return; // the location changed while reading

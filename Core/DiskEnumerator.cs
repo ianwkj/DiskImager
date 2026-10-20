@@ -129,6 +129,10 @@ public static class DiskEnumerator
             });
         }
 
+        // Screenshots for documentation: made-up serial numbers instead of the real ones.
+        if (Environment.GetEnvironmentVariable("DISKIMAGER_SCREENSHOT_MODE") == "1" && serial.Length > 0)
+            serial = $"S{6 + number}XN{(size >> 20) % 9000 + 1000}T0{number}A";
+
         return new DiskInfo
         {
             Number = number,

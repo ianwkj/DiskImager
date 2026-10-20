@@ -73,10 +73,16 @@ public static class WeeklyReport
     public static string StatusFolder(string destination)
     {
         // Tests: a stand-in for the share's status folder (so tests never write to a real share or drive root).
-        if (Environment.GetEnvironmentVariable("DISKIMAGER_TEST_STATUSFOLDER") is { Length: > 0 } test) return test;
-        string root = NetworkShare.IsNetworkPath(destination) ? NetworkShare.ShareRoot(destination) : Path.GetPathRoot(destination)!.TrimEnd('\\');
-        return Path.Combine(root + "\\", FolderName);
+        if (TestStatusFolder is { } test) return test;
+        return Path.Combine(LocationRoot(destination) + "\\", FolderName);
     }
+
+    /// <summary>The share (\\NAS\Backups) or drive (E:) a destination is in: where its status folder lives.</summary>
+    public static string LocationRoot(string destination) =>
+        NetworkShare.IsNetworkPath(destination) ? NetworkShare.ShareRoot(destination) : Path.GetPathRoot(destination)!.TrimEnd('\\');
+
+    public static string? TestStatusFolder =>
+        Environment.GetEnvironmentVariable("DISKIMAGER_TEST_STATUSFOLDER") is { Length: > 0 } test ? test : null;
 
     public static ReportSettings EnsureMachineId()
     {

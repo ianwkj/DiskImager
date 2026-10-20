@@ -44,6 +44,8 @@ public sealed class AppSettings
 
     public static AppSettings Load()
     {
+        // Screenshots for documentation: default settings, so no email, client or other personal details appear.
+        if (Environment.GetEnvironmentVariable("DISKIMAGER_SCREENSHOT_MODE") == "1") return new();
         try
         {
             return File.Exists(FilePath)

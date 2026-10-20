@@ -22,6 +22,7 @@ if (args.Length >= 3 && args[0] == "--health-ui") return UiTest.HealthUi(args[1]
 if (args.Length >= 2 && args[0] == "--screenfit") return UiTest.ScreenFitUi(args[1]);
 if (args.Length >= 3 && args[0] == "--wizard") return UiTest.WizardUi(args[1], args[2]);
 if (args.Length >= 3 && args[0] == "--clash") return UiTest.ClashUi(args[1], args[2]);
+if (args.Length >= 3 && args[0] == "--readme-shots") return UiTest.ReadmeShots(args[1], args[2]);
 
 string work = args.Length > 0 ? args[0] : Path.Combine(Path.GetTempPath(), "diskimager-smoke");
 if (Directory.Exists(work))

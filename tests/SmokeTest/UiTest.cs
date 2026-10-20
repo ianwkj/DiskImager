@@ -530,6 +530,123 @@ static class UiTest
     }
 
     /// <summary>
+    /// Screenshots for the README, with nothing personal in them: made-up drive serials (DISKIMAGER_SCREENSHOT_MODE),
+    /// made-up PCs and paths, and no Settings email or client details. dotnet run -- --readme-shots exe outdir
+    /// </summary>
+    public static int ReadmeShots(string exe, string outDir)
+    {
+        Directory.CreateDirectory(outDir);
+        string folder = Path.Combine(Path.GetTempPath(), "diskimager-readme", DiskImager.Core.WeeklyReport.FolderName);
+        Directory.CreateDirectory(folder);
+        foreach (var f in Directory.GetFiles(folder)) File.Delete(f);
+        void Pc(string name, string job, string fullTime, DayOfWeek fullDay, double fullMin, string incrTime, double incrMin)
+        {
+            var n = new DiskImager.Core.PcStatus
+            {
+                MachineId = Guid.NewGuid(), ComputerName = name, UpdatedUtc = DateTime.UtcNow,
+                Jobs = { new DiskImager.Core.JobStatus
+                {
+                    Name = job, FullMinutes = fullMin, IncrementalMinutes = incrMin,
+                    Full = new DiskImager.Core.Schedule { Kind = DiskImager.Core.ScheduleKind.Weekly, Time = fullTime, Days = { fullDay } },
+                    Incremental = new DiskImager.Core.Schedule { Kind = DiskImager.Core.ScheduleKind.Daily, Time = incrTime },
+                } },
+            };
+            File.WriteAllText(Path.Combine(folder, n.MachineId + ".json"), System.Text.Json.JsonSerializer.Serialize(n, DiskImager.Core.JobStore.Json));
+        }
+        Pc("RECEPTION", "Reception nightly", "22:00", DayOfWeek.Sunday, 48, "22:00", 9);
+        Pc("ACCOUNTS-01", "Accounts nightly", "21:00", DayOfWeek.Saturday, 62, "21:00", 14);
+
+        var psi = new ProcessStartInfo(exe, "--no-elevate") { UseShellExecute = false };
+        psi.Environment["DISKIMAGER_SCREENSHOT_MODE"] = "1";
+        psi.Environment["DISKIMAGER_TEST_STATUSFOLDER"] = folder;
+        var app = Process.Start(psi)!;
+        void Crop(string name, System.Windows.Rect r)
+        {
+            using var bmp = new System.Drawing.Bitmap((int)r.Width, (int)r.Height);
+            using (var g = System.Drawing.Graphics.FromImage(bmp)) g.CopyFromScreen((int)r.Left, (int)r.Top, 0, 0, bmp.Size);
+            bmp.Save(Path.Combine(outDir, name + ".png"), System.Drawing.Imaging.ImageFormat.Png);
+        }
+        // A window without its invisible resize border, so nothing behind it shows at the edges.
+        void ShotWindow(string dir, string name, AutomationElement w)
+        {
+            SetForegroundWindow(new IntPtr(w.Current.NativeWindowHandle));
+            Thread.Sleep(500);
+            var r = w.Current.BoundingRectangle;
+            const int border = 8;
+            Crop(name, new System.Windows.Rect(r.Left + border, r.Top + 1, r.Width - 2 * border, r.Height - border - 1));
+        }
+        try
+        {
+            var main = WaitFor(() => { app.Refresh(); return app.MainWindowHandle != IntPtr.Zero ? AutomationElement.FromHandle(app.MainWindowHandle) : null; }, 20)!;
+            Thread.Sleep(3500);
+            ShotWindow(outDir, "disks", main);
+
+            Select(main, "Disk health");
+            Thread.Sleep(2500);
+            var cards = main.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem))
+                .Cast<AutomationElement>().Where(i => All(i, ControlType.Text).Any(t => t.Current.Name.StartsWith("Disk "))).ToList();
+            if (cards.Count > 1) ((SelectionItemPattern)cards[1].GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+            Thread.Sleep(800);
+            ShotWindow(outDir, "disk-health", main);
+
+            // Settings: only the Disk health monitoring card (no email or client details).
+            Select(main, "Settings");
+            Thread.Sleep(800);
+            var top = ById(main, "HealthMonitorBox")!;
+            try { ((ScrollItemPattern)top.GetCurrentPattern(ScrollItemPattern.Pattern)).ScrollIntoView(); } catch { }
+            var scroller = All(main, ControlType.Pane).Select(p => p.TryGetCurrentPattern(ScrollPattern.Pattern, out var sp) ? (ScrollPattern)sp : null)
+                .FirstOrDefault(sp => sp != null && sp.Current.VerticallyScrollable);
+            try { scroller?.SetScrollPercent(ScrollPattern.NoScroll, 30); } catch { }
+            Thread.Sleep(800);
+            SetForegroundWindow(new IntPtr(main.Current.NativeWindowHandle));
+            Thread.Sleep(400);
+            var a = ById(main, "HealthMonitorBox")!.Current.BoundingRectangle;
+            var b = ById(main, "HealthSectorText")!.Current.BoundingRectangle;
+            var group = new System.Windows.Rect(a.Left - 34, a.Top - 52, 860, b.Bottom - a.Top + 52 + 110);
+            Crop("health-settings", group);
+
+            // The step-by-step job editor.
+            Select(main, "Scheduled backups");
+            Invoke(All(main, ControlType.Button).First(x => x.Current.Name.StartsWith("New job")));
+            var dlg = WaitFor(() => main.FindFirst(TreeScope.Children, new PropertyCondition(AutomationElement.NameProperty, "New scheduled backup")), 8)!;
+            Thread.Sleep(1000);
+            SetValue(ById(dlg, "NameBox")!, "FRONTDESK nightly");
+            Thread.Sleep(300);
+            ShotWindow(outDir, "job-1-disk", dlg);
+            GoStep(dlg, "Location");
+            SetValue(ById(dlg, "DestBox")!, @"\\NAS\Backups\FRONTDESK");
+            SetValue(ById(dlg, "UserBox")!, @"NAS\backups");
+            Thread.Sleep(400);
+            ShotWindow(outDir, "job-2-location", dlg);
+            GoStep(dlg, "Exclude folders");
+            Invoke(Button(dlg, "Downloads")!); Thread.Sleep(300);
+            Invoke(Button(dlg, "Temporary files")!); Thread.Sleep(300);
+            Invoke(Button(dlg, "Recycle Bin")!); Thread.Sleep(500);
+            ShotWindow(outDir, "job-3-exclude", dlg);
+            GoStep(dlg, "Schedule");
+            WaitFor(() => All(dlg, ControlType.Text).FirstOrDefault(t => t.Current.Name.StartsWith("This job would back up")), 8);
+            var pageScroll = ById(dlg, "PageScroll");
+            if (pageScroll?.TryGetCurrentPattern(ScrollPattern.Pattern, out var ps) == true) ((ScrollPattern)ps).SetScrollPercent(ScrollPattern.NoScroll, 100);
+            Thread.Sleep(600);
+            ShotWindow(outDir, "job-4-schedule-clash", dlg);
+            foreach (var label in new[] { "incremental", "full" })
+            {
+                var use = All(dlg, ControlType.Button).FirstOrDefault(x => x.Current.Name.StartsWith("Use ") && x.Current.Name.EndsWith($"for the {label} backup"));
+                if (use != null) { Invoke(use); Thread.Sleep(600); }
+            }
+            GoStep(dlg, "Review");
+            Thread.Sleep(600);
+            ShotWindow(outDir, "job-5-review", dlg);
+            Invoke(Button(dlg, "Cancel")!);
+            Thread.Sleep(600);
+        }
+        finally { try { app.Kill(); } catch { } }
+        try { Directory.Delete(Path.GetDirectoryName(folder)!, true); } catch { }
+        Console.WriteLine("README SHOTS DONE: " + string.Join(", ", Directory.GetFiles(outDir, "*.png").Select(Path.GetFileName)));
+        return 0;
+    }
+
+    /// <summary>
     /// Other PCs' backup times on the Schedule step, from fake status notes in a temp folder
     /// (DISKIMAGER_TEST_STATUSFOLDER; nothing is written to a real share). dotnet run -- --clash exe shots
     /// </summary>

@@ -4,6 +4,45 @@ A simple Windows disk imaging tool, loosely modelled on Macrium Reflect. Powered
 
 **Install:** download `DiskImagerSetup-<version>.exe` from this repository's **Releases** page and run it. It needs nothing else installed (works on Windows 10/11 and Windows Server 2022) and asks for admin rights when it starts. For unattended installs: `DiskImagerSetup-<version>.exe /silent`.
 
+![Disks](docs/screenshots/disks.png)
+
+## New in 1.4 (in the next release)
+
+### Disk health
+
+A **Disk health** tab shows each drive's own health readings (SMART), CrystalDiskInfo style: a **Good / Caution / Bad** status with the SSD's life left as a percentage, the temperature, power-on time and count, data written and read, and the full readings table. NVMe, SATA and most USB enclosures are supported.
+
+![Disk health](docs/screenshots/disk-health.png)
+
+DiskImager can also **check the drives quietly in the background** (every hour, day, week or month, at a time you choose) and **email you** when a drive's status changes, its health drops below a limit, it runs too hot, or bad sectors appear. Each alert is sent once when a limit is crossed, not every check.
+
+![Disk health monitoring settings](docs/screenshots/health-settings.png)
+
+### A step-by-step backup job window
+
+New and edited jobs are set up one step at a time (disk, location, folders to leave out, encryption, schedule, old backups, review), with the buttons always in view, so it fits laptop screens.
+
+| | |
+|---|---|
+| ![Choose the disk](docs/screenshots/job-1-disk.png) | ![Where the backups go](docs/screenshots/job-2-location.png) |
+| ![Folders to leave out](docs/screenshots/job-3-exclude.png) | ![Check and save](docs/screenshots/job-5-review.png) |
+
+- **Leave folders out with one click:** Downloads, temporary files, the Recycle Bin, browser caches, Videos, Music, Pictures and OneDrive, or browse to any folder.
+- **Encryption is a clear choice** you can skip.
+
+### No two PCs backing up at once
+
+Every PC shares its backup times (and how long its backups usually take) in the `_DiskImagerStatus` folder at the top of the backup share. When you schedule a job, DiskImager lists the other PCs' times, warns if yours would overlap, and suggests a free time.
+
+![Other PCs' backup times](docs/screenshots/job-4-schedule-clash.png)
+
+### Also new
+
+- **Weekly report from any of several PCs:** tick it on two or three PCs per office. After the chosen day and time, the first one that's on sends it and the others skip, so it still goes out when a PC is off.
+- **Only one DiskImager window at a time.** Opening it again offers to switch to the one that's open.
+- **Windows fit small screens:** the main window opens maximised on laptops, and pop-ups never open off-screen.
+- **Pop-up messages in DiskImager's own style,** with a red button for risky choices (delete, erase, stop).
+
 ## What it does
 
 | Tab | Features |
@@ -12,7 +51,8 @@ A simple Windows disk imaging tool, loosely modelled on Macrium Reflect. Powered
 | **Scheduled backups** | Jobs with separate **Full** and **Incremental** schedules (daily, weekly or monthly). Each job also has an **after-completion action** (shut down or restart), **wake to run**, and a **retention** setting that keeps the newest N full sets and deletes older ones after a successful backup. Also per job: **exclude folders** (e.g. `C:\Users\*\Downloads`), **encryption** with a password (AES-256), and **faster incrementals** (change tracking). |
 | **Restore** | Point it at a local folder, another drive, or a NAS/SMB share (with a username and password). Pick a backup point at the top and a target drive from the connected-drives list below, then choose **Restore to selected drive**. **Browse files** opens a backup and copies single files or folders out of it. **Verify image** re-checks every block's checksum. **Create rescue USB** makes a stick (or ISO) that starts a PC into DiskImager to restore it when Windows won't start. |
 | **Resize (restore and clone)** | The target drive can be smaller or larger than the source. **Resize automatically** grows or shrinks the main NTFS partition (usually C:) to fill the drive and moves the partitions after it, such as Recovery. **Choose sizes myself** lets you set each NTFS partition's size. Before and after bars preview the result. |
-| **Settings** | SMTP email settings: server, port, security, login, from and to addresses. Includes a **Send test email** button. Each job chooses when to email: never, only if it fails (the default), or every time. Failure emails include the error and the last 40 log lines. **This PC and the weekly report:** the client name (shown in every email subject, e.g. `[ACME Pte Ltd]`), a location label, and whether this PC sends the office's weekly backup report. **Updates:** check for updates when DiskImager opens (on by default) and **Check for updates now**. |
+| **Disk health** | Each drive's health status and life left, temperature and SMART / NVMe readings. **Check now** reads them again. |
+| **Settings** | SMTP email settings: server, port, security, login, from and to addresses. Includes a **Send test email** button. Each job chooses when to email: never, only if it fails (the default), or every time. Failure emails include the error and the last 40 log lines. **Disk health monitoring:** how often drives are checked in the background and which changes are emailed. **This PC and the weekly report:** the client name (shown in every email subject, e.g. `[ACME Pte Ltd]`), a location label, and whether this PC can send the office's weekly backup report. **Updates:** check for updates when DiskImager opens (on by default) and **Check for updates now**. |
 | **Log** | Live log. Scheduled runs also write to `C:\ProgramData\DiskImager\Logs`. |
 
 ## How it works
@@ -29,13 +69,14 @@ A simple Windows disk imaging tool, loosely modelled on Macrium Reflect. Powered
 - **Encryption:** each block is compressed, then encrypted with AES-256-GCM using a key derived from the job's password (PBKDF2-SHA256, 600,000 rounds). Block checksums become keyed (HMAC) so they reveal nothing. A changed password starts a new full backup. The password is never stored in the image; on the PC it's kept with DPAPI like the NAS password. **Lose the password and the backups can't be restored.**
 - **File-level restore:** a built-in, read-only NTFS reader (no driver) lists the folders inside a backup and copies files out. It handles fragmented, sparse and compressed files (NTFS and Windows' newer per-file XPRESS compression; LZX-compressed files and EFS-encrypted files can't be copied).
 - **Faster incrementals (change tracking):** at each backup DiskImager records which file owns each 1 MB block (from the snapshot's MFT) and the NTFS change journal position. The next incremental skips blocks whose owners didn't change and whose files don't appear in the journal; NTFS's own metadata is always read. A random sample of skipped blocks is read anyway and must match, and anything uncertain (journal reset or overflowed, missing record) means reading everything as before.
-- **Weekly report:** after every run each PC writes a status note to `_DiskImagerStatus` at the root of its backup destination (the NAS share or the backup drive). The PC set to send the report reads all notes it can reach and emails one report per client, including PCs that are late, failing, or haven't reported (silent), plus backup-space use and a "full in about N weeks" estimate.
+- **Weekly report:** after every run each PC writes a status note to `_DiskImagerStatus` at the root of its backup destination (the NAS share or the backup drive). The note also holds each job's schedule and usual run time, used to avoid overlapping backups. PCs set to send the report check after the due time (and at startup and hourly); the first to claim it, with a lock file on the share, reads all notes it can reach and emails one report per client, including PCs that are late, failing, or haven't reported (silent), plus backup-space use and a "full in about N weeks" estimate. A marker on the share stops the others sending it again.
+- **Disk health:** NVMe drives are read through Windows' protocol-specific storage query (the SMART / Health Information log); SATA drives through `SMART_RCV_DRIVE_DATA`; USB enclosures through SCSI ATA pass-through. The status follows CrystalDiskInfo's rules: **Bad** when an attribute reaches its failure threshold or an NVMe drive raises a critical warning; **Caution** for reallocated, pending or uncorrectable sectors, media errors, or 10% life or less. The background check is a SYSTEM scheduled task (`DiskImager\Disk health check`) that remembers each drive's last state in `C:\ProgramData\DiskImager\health-state.json`.
 - **Rescue USB:** built from the PC's own Windows Recovery Environment (`reagentc /info`, or `Windows\System32\Recovery\Winre.wim`) with DISM: DiskImager is added and started in rescue mode (`--rescue`, a text menu), and the PC's third-party network and storage drivers are included. The stick boots UEFI PCs (Secure Boot included, as only Microsoft's signed boot files are used) and older BIOS PCs; the ISO boots UEFI. Building needs administrator rights.
 - **Automatic updates:** When DiskImager opens, it checks this repository's latest GitHub release.
   - **Which releases count:** only a release with `DiskImagerSetup-x.y.z.exe` and its `.sig` signature is used.
   - **The pop-up:** if the release is newer, a pop-up counts down 10 seconds. If nobody clicks **Later**, DiskImager downloads the installer and checks its signature. The installer then runs silently, waits for DiskImager to close and reopens it.
   - **When it doesn't update:** never while a backup, restore or clone is running. If an update didn't install, the next pop-up asks instead of retrying by itself.
-  - **Signing:** the signature is checked against the public key in `Core/UpdateKey.cs`. `build-release.ps1` signs each installer with the matching private key, kept outside the repository at `%USERPROFILE%\.diskimager\update-signing-key.xml`.
+  - **Signing:** the signature is checked against the public key in `Core/UpdateKey.cs`. `build-release.ps1` signs each installer with the matching private key, kept outside the repository: at `%USERPROFILE%\.diskimager\update-signing-key.xml`, or wherever the `DISKIMAGER_SIGNING_KEY` environment variable points.
   - **Keep a backup of that key.** Without it, installed copies won't accept new releases.
 
 ## Limitations
@@ -50,6 +91,7 @@ A simple Windows disk imaging tool, loosely modelled on Macrium Reflect. Powered
 - **Not yet tested on real disks:** The resize logic is tested on simulated disks only. The Windows-side steps (extending the file system, the temporary working copy, shrinking) need admin rights and haven't been run on real hardware yet.
 - **BitLocker:** Unlocked BitLocker volumes are imaged as decrypted data, and the restored copy is unencrypted.
 - **Cloning or restoring while both disks stay attached:** Unless you tick "new disk IDs", Windows may take one of the two disks offline because they look identical.
+- **Disk health:** drives behind hardware RAID controllers, virtual disks and some USB enclosures don't report health data (the tab says so). Hard disks don't report a life percentage. SATA and USB reading has been tested on simulated data; NVMe on real drives.
 
 ## Building
 
