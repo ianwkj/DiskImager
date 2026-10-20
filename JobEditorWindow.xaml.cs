@@ -140,6 +140,9 @@ public partial class JobEditorWindow : Window
             Title = job == null ? "New scheduled backup" : $"Edit '{job.Name}'";
             RailTitle.Text = job == null ? "New backup job" : job.Name;
         }
+        FullSchedule.Changed += UpdateClashes;
+        IncrSchedule.Changed += UpdateClashes;
+
         // Editing: everything is filled in already, so open on the summary.
         bool editing = job != null && !oneOff;
         _furthest = editing ? _steps.Count - 1 : 0;
@@ -176,6 +179,7 @@ public partial class JobEditorWindow : Window
         OkButton.Tag = last ? (_oneOff ? "\uE768" : "\uE74E") : "\uE72A";
         StepText.Text = $"Step {i + 1} of {_steps.Count}";
         if (last) FillReview();
+        if (_steps[i].Page == SchedulePage) _ = LoadOthers(force: false);
         PageScroll.ScrollToTop();
         Dispatcher.BeginInvoke(() => FocusFirst(_steps[i].Page), System.Windows.Threading.DispatcherPriority.Input);
     }
@@ -446,6 +450,135 @@ public partial class JobEditorWindow : Window
         return JobStore.Protect(a);
     }
 
+    // ------------------------------------------------------------------ other PCs' backup times
+
+    private List<ScheduleClash.Run>? _others;
+    private string? _othersFor;
+    private List<ScheduleClash.Clash> _clashes = new();
+
+    private async void RefreshOthers_Click(object sender, RoutedEventArgs e) => await LoadOthers(force: true);
+
+    /// <summary>Reads the other PCs' backup times from the status notes at the top of this job's location.</summary>
+    private async Task LoadOthers(bool force)
+    {
+        string dest = DestBox.Text.Trim().TrimEnd('\\');
+        if (!force && dest == _othersFor) { UpdateClashes(); return; }
+        _othersFor = dest;
+        _others = null;
+        OthersList.Children.Clear();
+        ClashPanel.Children.Clear();
+        if (dest.Length < 3)
+        {
+            OthersWhere.Text = "";
+            OthersHint.Text = "Choose where the backups go first (the Location step).";
+            return;
+        }
+        string root = Path.GetDirectoryName(WeeklyReport.StatusFolder(dest)) ?? dest;
+        OthersWhere.Text = $"Backup times other PCs shared in {root}";
+        OthersHint.Text = "Checking other PCs' backup times…";
+        bool net = NetworkShare.IsNetworkPath(dest);
+        string user = net ? UserBox.Text.Trim() : "";
+        string? pass = !net ? null : PassBox.Password.Length > 0 ? PassBox.Password : JobStore.Unprotect(Job.NetPasswordProtected);
+        string jobName = Job.Name.Length > 0 && Job.RegisteredTasks.Count > 0 ? Job.Name : NameBox.Text.Trim();
+        try
+        {
+            var others = await Task.Run(() =>
+            {
+                if (net) NetworkShare.Connect(dest, user.Length > 0 ? user : null, pass, null);
+                return ScheduleClash.Others(dest, WeeklyReport.EnsureMachineId().MachineId, jobName);
+            });
+            if (dest != _othersFor) return; // the location changed while reading
+            _others = others;
+            UpdateClashes();
+        }
+        catch (Exception ex)
+        {
+            if (dest != _othersFor) return;
+            OthersHint.Text = $"Couldn't read other PCs' backup times from {root}: {ex.Message}";
+        }
+    }
+
+    private void UpdateClashes()
+    {
+        if (_others == null || SchedulePage == null) return;
+        var full = FullSchedule.Peek();
+        var incr = IncrSchedule.Peek();
+        _clashes = ScheduleClash.Find(full, Job.LastFullMinutes, incr, Job.LastIncrementalMinutes, _others, DateTime.Now);
+
+        // Overlaps, with a suggested free time for each schedule that clashes.
+        ClashPanel.Children.Clear();
+        if (_others.Count > 0)
+        {
+            bool bad = _clashes.Count > 0;
+            var box = new StackPanel();
+            box.Children.Add(new TextBlock
+            {
+                Text = bad ? "This job would back up at the same time as:" : "No overlaps: this job runs when no other backup here does.",
+                FontWeight = FontWeights.SemiBold, Foreground = DiskBars.Hex(bad ? "#92400E" : "#14532D"), TextWrapping = TextWrapping.Wrap,
+            });
+            foreach (var c in _clashes.GroupBy(x => x.Other).Select(g => g.OrderBy(x => x.FirstLocal).First()).OrderBy(x => x.FirstLocal))
+                box.Children.Add(new TextBlock
+                {
+                    Text = $"•  {c.Other.Computer} ({c.Other.Job}, {c.Other.KindText.ToLowerInvariant()}): first on {c.FirstLocal:ddd d MMM} at {c.FirstLocal:HH:mm}",
+                    Foreground = DiskBars.Hex("#92400E"), Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap,
+                });
+            if (bad)
+            {
+                box.Children.Add(new TextBlock
+                {
+                    Text = "Backups at the same time slow each other down and load the NAS. Pick a time after the other one finishes:",
+                    Foreground = DiskBars.Hex("#92400E"), FontSize = 12, Margin = new Thickness(0, 8, 0, 6), TextWrapping = TextWrapping.Wrap,
+                });
+                var buttons = new WrapPanel();
+                foreach (var (editor, sched, minutes, label) in new[]
+                         { (FullSchedule, full, Job.LastFullMinutes, "full"), (IncrSchedule, incr, Job.LastIncrementalMinutes, "incremental") })
+                {
+                    if (sched == null || !_clashes.Any(c => c.MineFull == (label == "full"))) continue;
+                    string? free = ScheduleClash.SuggestTime(sched, minutes, _others, DateTime.Now);
+                    if (free == null) continue;
+                    var b = new Button { Content = $"Use {free} for the {label} backup", Tag = "", Margin = new Thickness(0, 0, 8, 0) };
+                    b.Click += (_, _) => editor.SetTime(free);
+                    buttons.Children.Add(b);
+                }
+                box.Children.Add(buttons);
+            }
+            ClashPanel.Children.Add(new Border
+            {
+                Background = DiskBars.Hex(bad ? "#FFFBEB" : "#F0FDF4"), BorderBrush = DiskBars.Hex(bad ? "#FDE68A" : "#BBF7D0"),
+                BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(12, 10, 12, 10),
+                Margin = new Thickness(0, 0, 0, 10), Child = box,
+            });
+        }
+
+        // Each other job, its times and usual length.
+        OthersList.Children.Clear();
+        foreach (var g in _others.GroupBy(r => (r.Computer, r.Job)))
+        {
+            bool clashing = _clashes.Any(c => c.Other.Computer == g.Key.Computer && c.Other.Job == g.Key.Job);
+            var dot = new Border
+            {
+                Width = 9, Height = 9, CornerRadius = new CornerRadius(4.5), Background = DiskBars.Hex(clashing ? "#D97706" : "#22C55E"),
+                VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 5, 10, 0),
+            };
+            var text = new StackPanel();
+            text.Children.Add(new TextBlock { Text = $"{g.Key.Computer}  ·  {g.Key.Job}", FontWeight = FontWeights.SemiBold });
+            foreach (var r in g)
+                text.Children.Add(new TextBlock
+                {
+                    Text = $"{r.KindText}: {r.Schedule.Describe()}  ·  {r.LengthText}", Foreground = DiskBars.Hex("#475569"), FontSize = 12.5,
+                    Margin = new Thickness(0, 2, 0, 0),
+                });
+            var row = new DockPanel { Margin = new Thickness(0, 6, 0, 6) };
+            DockPanel.SetDock(dot, Dock.Left);
+            row.Children.Add(dot);
+            row.Children.Add(text);
+            OthersList.Children.Add(new Border { BorderBrush = DiskBars.Hex("#EEF2F6"), BorderThickness = new Thickness(0, 1, 0, 0), Child = row });
+        }
+        OthersHint.Text = _others.Count == 0
+            ? "No other PC has shared its backup times here yet. PCs with DiskImager 1.4 or later share them when their job is saved and after each backup."
+            : "Times are shared by each PC with DiskImager 1.4 or later. A backup that hasn't run yet is counted as an hour long.";
+    }
+
     // ------------------------------------------------------------------ review and save
 
     private void FillReview()
@@ -514,6 +647,18 @@ public partial class JobEditorWindow : Window
             {
                 Show(i);
                 Warn(ex.Message);
+                return;
+            }
+        }
+        if (!_oneOff && _others != null)
+        {
+            UpdateClashes();
+            if (_clashes.Count > 0 && AppMessage.Show(this,
+                    $"This job backs up at the same time as {string.Join(", ", _clashes.Select(c => c.Other.Computer).Distinct())}.\n\n" +
+                    "Both backups will be slower, and so will the NAS. You can pick another time on the Schedule step.\n\nSave it anyway?",
+                    "Backups at the same time", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            {
+                Show(_steps.FindIndex(s => s.Page == SchedulePage));
                 return;
             }
         }

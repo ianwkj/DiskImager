@@ -76,6 +76,9 @@ public sealed class BackupJob
     public DateTime? LastRunUtc { get; set; }
     public string? LastResult { get; set; }
     public DateTime? LastSuccessUtc { get; set; }
+    /// <summary>How long the last successful full / incremental backup took (shared so other PCs can avoid clashing).</summary>
+    public double? LastFullMinutes { get; set; }
+    public double? LastIncrementalMinutes { get; set; }
 
     // Missed-run tracking.
     /// <summary>Runs scheduled before this time (job created / schedule last saved) are never reported as missed.</summary>

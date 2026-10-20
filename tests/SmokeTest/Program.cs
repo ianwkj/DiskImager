@@ -21,6 +21,7 @@ if (args.Length >= 3 && args[0] == "--health-xml")
 if (args.Length >= 3 && args[0] == "--health-ui") return UiTest.HealthUi(args[1], args[2]);
 if (args.Length >= 2 && args[0] == "--screenfit") return UiTest.ScreenFitUi(args[1]);
 if (args.Length >= 3 && args[0] == "--wizard") return UiTest.WizardUi(args[1], args[2]);
+if (args.Length >= 3 && args[0] == "--clash") return UiTest.ClashUi(args[1], args[2]);
 
 string work = args.Length > 0 ? args[0] : Path.Combine(Path.GetTempPath(), "diskimager-smoke");
 if (Directory.Exists(work))
@@ -870,6 +871,56 @@ Check(JobStore.Unprotect(JobStore.Protect("s3cret!")) == "s3cret!", "NAS passwor
         var justSaved = new ReportSettings { SendWeekly = true, Day = DayOfWeek.Sunday, Time = "08:00", SendingSinceUtc = sun.AddDays(500).AddHours(3).ToUniversalTime() };
         Check(Run("S", justSaved, sun.AddDays(500).AddHours(4)) == "Not due yet.", "shared report: saving the settings after the due time doesn't send a late report");
         Check(Run("N", new ReportSettings { SendWeekly = false }, sun.AddDays(600)).Contains("doesn't send"), "shared report: PCs without the box ticked never send");
+
+        // ---- Backup times shared between PCs: overlaps and a free time.
+        {
+            string clashFolder = Path.Combine(work, "clash", WeeklyReport.FolderName);
+            Directory.CreateDirectory(clashFolder);
+            var me = Guid.NewGuid();
+            Schedule Daily(string t) => new() { Kind = ScheduleKind.Daily, Time = t };
+            Schedule Weekly(string t, params DayOfWeek[] d) => new() { Kind = ScheduleKind.Weekly, Time = t, Days = d.ToList() };
+            void Note(Guid id, string pc, params JobStatus[] jobs) =>
+                File.WriteAllText(Path.Combine(clashFolder, id + ".json"), System.Text.Json.JsonSerializer.Serialize(
+                    new PcStatus { MachineId = id, ComputerName = pc, UpdatedUtc = DateTime.UtcNow, Jobs = jobs.ToList() }, JobStore.Json));
+            Note(Guid.NewGuid(), "FRONTDESK", new JobStatus { Name = "Nightly", Full = Weekly("22:00", DayOfWeek.Sunday), FullMinutes = 45,
+                Incremental = Daily("22:00"), IncrementalMinutes = 10 });
+            Note(Guid.NewGuid(), "OLD-PC", new JobStatus { Name = "From 1.3.0", ExpectedEveryHours = 24 }); // no times shared
+            Note(me, "THISPC", new JobStatus { Name = "Mine", Full = Daily("22:00") }, new JobStatus { Name = "Data disk", Incremental = Daily("03:00") });
+            File.WriteAllText(Path.Combine(clashFolder, "_report-sent.json"), "{}");
+
+            Environment.SetEnvironmentVariable("DISKIMAGER_TEST_STATUSFOLDER", clashFolder);
+            List<ScheduleClash.Run> others;
+            try { others = ScheduleClash.Others(@"\\NAS\Backups\THISPC", me, "Mine"); }
+            finally { Environment.SetEnvironmentVariable("DISKIMAGER_TEST_STATUSFOLDER", null); }
+            Check(others.Count == 3 && others.Count(o => o.Computer == "FRONTDESK") == 2 && others.Any(o => o.IsThisPc && o.Job == "Data disk")
+                  && !others.Any(o => o.Job == "Mine"),
+                $"backup times: other PCs' jobs and this PC's other jobs are read, the job being edited isn't ({others.Count})");
+
+            var mon = new DateTime(2026, 10, 19, 12, 0, 0); // a Monday, local time
+            var same = ScheduleClash.Find(Weekly("22:00", DayOfWeek.Sunday), null, Daily("22:00"), null, others, mon);
+            Check(same.Count == 4 && same.All(x => x.Other.Computer == "FRONTDESK") && same.Any(x => x.MineFull) && same.Any(x => !x.MineFull),
+                $"backup times: the same times as FRONTDESK clash, for both this job's full and incremental ({same.Count})");
+            Check(same.First().FirstLocal == mon.Date.AddHours(22), "backup times: the first clash is tonight at 22:00");
+            Check(ScheduleClash.Find(null, null, Daily("22:20"), 10, others, mon).Any(x => !x.Other.Full),
+                "backup times: 22:20 is too close to a 10-minute backup at 22:00 (15-minute margin)");
+            Check(!ScheduleClash.Find(null, null, Daily("22:30"), 10, others, mon).Any(x => !x.Other.Full),
+                "backup times: 22:30 is clear of FRONTDESK's 10-minute incremental");
+            Check(ScheduleClash.Find(null, null, Daily("22:30"), 10, others, mon).Any(x => x.Other.Full && x.FirstLocal.DayOfWeek == DayOfWeek.Sunday),
+                "backup times: …but runs into FRONTDESK's 45-minute Sunday full backup");
+            Check(ScheduleClash.Find(Weekly("22:00", DayOfWeek.Monday), null, null, null, others.Where(o => o.Full).ToList(), mon).Count == 0,
+                "backup times: different days don't clash (Monday vs Sunday)");
+            Check(ScheduleClash.Find(null, null, Daily("02:30"), null, others, mon).Any(x => x.Other.Job == "Data disk"),
+                "backup times: a backup that hasn't run yet counts as an hour (02:30 runs into 03:00)");
+            string? free = ScheduleClash.SuggestTime(Daily("22:00"), 20, others, mon);
+            Check(free != null && ScheduleClash.Find(null, null, Daily(free), 20, others, mon).Count == 0,
+                $"backup times: a free time is suggested ({free}) and it really is free");
+            Check(ScheduleClash.Find(Daily("23:30"), 20, Daily("23:30"), 20, others, mon).Count == 0, "backup times: 23:30 is free every day");
+
+            var json = System.Text.Json.JsonSerializer.Serialize(new JobStatus { Name = "x", Full = Weekly("21:00", DayOfWeek.Friday), FullMinutes = 33 }, JobStore.Json);
+            var back = System.Text.Json.JsonSerializer.Deserialize<JobStatus>(json, JobStore.Json)!;
+            Check(back.Full?.Days.Single() == DayOfWeek.Friday && back.Full.Time == "21:00" && back.FullMinutes == 33 && json.Contains("\"Weekly\""),
+                "backup times: schedules and run times are stored in the status note");
+        }
 
         string xml = TaskSchedulerService.BuildReportXml(@"C:\Program Files\DiskImager\DiskImager.exe", DayOfWeek.Sunday, "08:00");
         var doc = System.Xml.Linq.XDocument.Parse(xml.Replace("encoding=\"UTF-16\"", ""));

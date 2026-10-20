@@ -87,6 +87,11 @@ public static class JobRunner
         {
             var r = RunJob(job, incremental, progress, ct, log);
             RecordResult(job.Id, $"OK – {(r.WasFull ? "Full" : "Incremental")}, {Util.FormatBytes(r.BytesWritten)}", success: true);
+            JobStore.Update(job.Id, j =>
+            {
+                if (r.WasFull) j.LastFullMinutes = Math.Round(r.Duration.TotalMinutes, 1);
+                else j.LastIncrementalMinutes = Math.Round(r.Duration.TotalMinutes, 1);
+            });
             WeeklyReport.WriteStatusNotes(log);
             Notifier.JobFinished(job, incremental, r, null, started, log);
             return r;

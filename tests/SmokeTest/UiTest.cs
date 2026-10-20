@@ -530,6 +530,72 @@ static class UiTest
     }
 
     /// <summary>
+    /// Other PCs' backup times on the Schedule step, from fake status notes in a temp folder
+    /// (DISKIMAGER_TEST_STATUSFOLDER; nothing is written to a real share). dotnet run -- --clash exe shots
+    /// </summary>
+    public static int ClashUi(string exe, string shots)
+    {
+        int failures = 0;
+        void Check(bool ok, string what) { Console.WriteLine($"{(ok ? "PASS" : "FAIL")}  {what}"); if (!ok) failures++; }
+        Directory.CreateDirectory(shots);
+        string folder = Path.Combine(Path.GetTempPath(), "diskimager-clash-ui", DiskImager.Core.WeeklyReport.FolderName);
+        Directory.CreateDirectory(folder);
+        foreach (var f in Directory.GetFiles(folder)) File.Delete(f);
+        var note = new DiskImager.Core.PcStatus
+        {
+            MachineId = Guid.NewGuid(), ComputerName = "FRONTDESK", UpdatedUtc = DateTime.UtcNow,
+            Jobs =
+            {
+                new DiskImager.Core.JobStatus
+                {
+                    Name = "Nightly", FullMinutes = 45, IncrementalMinutes = 10,
+                    Full = new DiskImager.Core.Schedule { Kind = DiskImager.Core.ScheduleKind.Weekly, Time = "22:00", Days = { DayOfWeek.Sunday } },
+                    Incremental = new DiskImager.Core.Schedule { Kind = DiskImager.Core.ScheduleKind.Daily, Time = "22:00" },
+                },
+            },
+        };
+        File.WriteAllText(Path.Combine(folder, note.MachineId + ".json"), System.Text.Json.JsonSerializer.Serialize(note, DiskImager.Core.JobStore.Json));
+
+        var psi = new ProcessStartInfo(exe, "--no-elevate") { UseShellExecute = false };
+        psi.Environment["DISKIMAGER_TEST_STATUSFOLDER"] = folder;
+        var app = Process.Start(psi)!;
+        try
+        {
+            var main = WaitFor(() => { app.Refresh(); return app.MainWindowHandle != IntPtr.Zero ? AutomationElement.FromHandle(app.MainWindowHandle) : null; }, 20)!;
+            Thread.Sleep(2500);
+            Select(main, "Scheduled backups");
+            Invoke(All(main, ControlType.Button).First(b => b.Current.Name.StartsWith("New job")));
+            var dlg = WaitFor(() => main.FindFirst(TreeScope.Children, new PropertyCondition(AutomationElement.NameProperty, "New scheduled backup")), 8)!;
+            Thread.Sleep(800);
+            GoStep(dlg, "Location");
+            SetValue(ById(dlg, "DestBox")!, Path.Combine(Path.GetTempPath(), "diskimager-clash-ui", "THISPC"));
+            GoStep(dlg, "Schedule");
+            var warning = WaitFor(() => All(dlg, ControlType.Text).FirstOrDefault(t => t.Current.Name.StartsWith("This job would back up at the same time")), 8);
+            Check(warning != null, "schedule: the default 22:00 times clash with FRONTDESK and it says so");
+            Check(Shows(dlg, "FRONTDESK  ·  Nightly") && Shows(dlg, "Full: Weekly on Sun at 22:00  ·  about 45 min")
+                  && Shows(dlg, "Incremental: Daily at 22:00  ·  about 10 min"), "schedule: other PCs' times and usual lengths are listed");
+            ShotWindow(shots, "clash-1-warning", dlg);
+
+            foreach (var label in new[] { "incremental", "full" })
+            {
+                var use = All(dlg, ControlType.Button).FirstOrDefault(b => b.Current.Name.StartsWith("Use ") && b.Current.Name.EndsWith($"for the {label} backup"));
+                Check(use != null, $"schedule: a free time is offered for the {label} backup ({use?.Current.Name})");
+                if (use != null) Invoke(use);
+                Thread.Sleep(700);
+            }
+            var clear = WaitFor(() => All(dlg, ControlType.Text).FirstOrDefault(t => t.Current.Name.StartsWith("No overlaps")), 5);
+            Check(clear != null, "schedule: after using the suggested times there are no overlaps");
+            ShotWindow(shots, "clash-2-clear", dlg);
+            Invoke(Button(dlg, "Cancel")!);
+            Thread.Sleep(600);
+        }
+        finally { try { app.Kill(); } catch { } }
+        try { Directory.Delete(Path.GetDirectoryName(folder)!, true); } catch { }
+        Console.WriteLine(failures == 0 ? "CLASH UI TESTS PASSED" : $"{failures} CLASH UI TEST(S) FAILED");
+        return failures == 0 ? 0 : 1;
+    }
+
+    /// <summary>
     /// Small screens: the app is told the screen's usable area is smaller (DISKIMAGER_TEST_WORKAREA) and the window
     /// positions are read back (no keys are pressed). dotnet run -- --screenfit exe
     /// </summary>

@@ -239,6 +239,21 @@
                                 <CheckBox x:Name="WakeBox" Grid.Row="4" Grid.Column="1" Content="Wake the computer from sleep to run this job" Margin="0,10,0,0"/>
                             </Grid>
                         </Border>
+                        <!-- Other PCs' backup times at the same place, so two PCs don't back up at once. -->
+                        <Border x:Name="OthersCard" Style="{StaticResource Card}">
+                            <StackPanel>
+                                <DockPanel Margin="0,0,0,8">
+                                    <Button DockPanel.Dock="Right" Content="Check again" Tag="&#xE72C;" Click="RefreshOthers_Click" Margin="0" Padding="10,4"/>
+                                    <StackPanel>
+                                        <TextBlock x:Name="OthersTitle" Style="{StaticResource CardTitle}" Margin="0" Text="Other backups at this location"/>
+                                        <TextBlock x:Name="OthersWhere" Style="{StaticResource Hint}" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                </DockPanel>
+                                <StackPanel x:Name="ClashPanel"/>
+                                <StackPanel x:Name="OthersList"/>
+                                <TextBlock x:Name="OthersHint" Style="{StaticResource Hint}" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
 
                     <!-- 5b. Backup type (one-off "Image disk") -->

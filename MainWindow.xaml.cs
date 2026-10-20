@@ -178,12 +178,21 @@ public partial class MainWindow : Window
         // A saved schedule starts fresh: earlier times are never reported as missed.
         job.ScheduleSinceUtc = DateTime.UtcNow;
         job.MissedNotifiedForUtc = null;
+        var before = jobs.FirstOrDefault(j => j.Id == job.Id);
         jobs.RemoveAll(j => j.Id == job.Id);
         jobs.Add(job);
         JobStore.Save(jobs);
         SyncMissedCheck();
         RefreshJobs();
+        ShareSchedules(before != null && (before.Destination != job.Destination || before.Name != job.Name) ? before : null);
     }
+
+    /// <summary>Updates this PC's status notes so other PCs see its backup times straight away (and forgets a moved/renamed/deleted job).</summary>
+    private void ShareSchedules(BackupJob? forget) => _ = Task.Run(() =>
+    {
+        if (forget != null) WeeklyReport.ForgetJob(forget, _log);
+        WeeklyReport.WriteStatusNotes(_log);
+    });
 
     private void SyncMissedCheck()
     {
@@ -196,13 +205,14 @@ public partial class MainWindow : Window
         var job = SelectedJob();
         if (job == null) return;
         if (AppMessage.Show(this, $"Delete the job '{job.Name}' and its schedule?\n\nExisting image files are kept.",
-                "Delete job", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                "Delete job", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         TaskSchedulerService.Unregister(job);
         var jobs = JobStore.Load();
         jobs.RemoveAll(j => j.Id == job.Id);
         JobStore.Save(jobs);
         SyncMissedCheck();
         RefreshJobs();
+        ShareSchedules(job);
     }
 
     private async void RunFull_Click(object sender, RoutedEventArgs e) => await RunJobNow(false);

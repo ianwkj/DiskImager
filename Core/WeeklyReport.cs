@@ -34,6 +34,11 @@ public sealed class JobStatus
     /// <summary>Longest normal gap between this job's scheduled runs, in hours (0 = not scheduled).</summary>
     public double ExpectedEveryHours { get; set; }
     public long? LastImageBytes { get; set; }
+    /// <summary>The job's schedules and usual run times, so other PCs can pick times that don't clash (1.4.0+).</summary>
+    public Schedule? Full { get; set; }
+    public Schedule? Incremental { get; set; }
+    public double? FullMinutes { get; set; }
+    public double? IncrementalMinutes { get; set; }
 }
 
 /// <summary>A PC's status note, left next to its backups after every run.</summary>
@@ -67,6 +72,8 @@ public static class WeeklyReport
     /// <summary>\\NAS\Backups\PC1 → \\NAS\Backups\_DiskImagerStatus;  E:\Backups\PC1 → E:\_DiskImagerStatus</summary>
     public static string StatusFolder(string destination)
     {
+        // Tests: a stand-in for the share's status folder (so tests never write to a real share or drive root).
+        if (Environment.GetEnvironmentVariable("DISKIMAGER_TEST_STATUSFOLDER") is { Length: > 0 } test) return test;
         string root = NetworkShare.IsNetworkPath(destination) ? NetworkShare.ShareRoot(destination) : Path.GetPathRoot(destination)!.TrimEnd('\\');
         return Path.Combine(root + "\\", FolderName);
     }
@@ -179,6 +186,10 @@ public static class WeeklyReport
                             LastSuccessUtc = j.LastSuccessUtc,
                             ExpectedEveryHours = ExpectedEvery(j),
                             LastImageBytes = LatestImageSize(j),
+                            Full = j.RegisteredTasks.Count > 0 ? j.Full : null,
+                            Incremental = j.RegisteredTasks.Count > 0 ? j.Incremental : null,
+                            FullMinutes = j.LastFullMinutes,
+                            IncrementalMinutes = j.LastIncrementalMinutes,
                         }).ToList(),
                     };
                     string tmp = file + ".tmp";
@@ -189,6 +200,24 @@ public static class WeeklyReport
             }
         }
         catch (Exception ex) { log.Warn("Couldn't write status notes: " + ex.Message); }
+    }
+
+    /// <summary>Takes a deleted (or moved) job off this PC's note at its old location, so other PCs stop seeing its times.</summary>
+    public static void ForgetJob(BackupJob job, Logger log)
+    {
+        try
+        {
+            if (job.Destination.Length <= 2) return;
+            var settings = EnsureMachineId();
+            NetworkShare.Connect(job.Destination, job.NetUser, JobStore.Unprotect(job.NetPasswordProtected), null);
+            string file = Path.Combine(StatusFolder(job.Destination), settings.MachineId + ".json");
+            if (TryRead(file) is not { } note) return;
+            if (note.Jobs.RemoveAll(j => string.Equals(j.Name, job.Name, StringComparison.OrdinalIgnoreCase)) == 0) return;
+            note.UpdatedUtc = DateTime.UtcNow;
+            File.WriteAllText(file + ".tmp", JsonSerializer.Serialize(note, Json));
+            File.Move(file + ".tmp", file, overwrite: true);
+        }
+        catch (Exception ex) { log.Warn($"Couldn't update the status note for '{job.Name}': {ex.Message}"); }
     }
 
     private static long? LatestImageSize(BackupJob j)
