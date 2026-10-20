@@ -9,7 +9,8 @@ param(
     [switch]$Publish,
     [string]$NotesFile = "",
     # Private half of the update signing key. Never commit it; back it up somewhere safe.
-    [string]$SigningKey = (Join-Path $env:USERPROFILE '.diskimager\update-signing-key.xml')
+    # Set DISKIMAGER_SIGNING_KEY to keep it somewhere other than %USERPROFILE%\.diskimager.
+    [string]$SigningKey = $(if ($env:DISKIMAGER_SIGNING_KEY) { $env:DISKIMAGER_SIGNING_KEY } else { Join-Path $env:USERPROFILE '.diskimager\update-signing-key.xml' })
 )
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
