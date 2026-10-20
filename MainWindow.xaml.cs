@@ -25,6 +25,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ScreenFit.Attach(this, maximiseIfTooSmall: true);
         var v = typeof(MainWindow).Assembly.GetName().Version;
         if (v != null) VersionText.Text = AboutVersion.Text = $"Version {v.Major}.{v.Minor}.{v.Build}";
         _log.LineWritten += line =>

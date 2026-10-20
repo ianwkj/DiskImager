@@ -15,6 +15,7 @@ public partial class JobEditorWindow : Window
     public JobEditorWindow(List<DiskInfo> disks, BackupJob? job, bool oneOff, DiskInfo? preselect)
     {
         InitializeComponent();
+        ScreenFit.Attach(this);
         _disks = disks;
         _oneOff = oneOff;
         Job = job ?? new BackupJob();

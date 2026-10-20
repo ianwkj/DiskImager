@@ -349,6 +349,81 @@ static class UiTest
         return failures == 0 ? 0 : 1;
     }
 
+    /// <summary>
+    /// Small screens: the app is told the screen's usable area is smaller (DISKIMAGER_TEST_WORKAREA) and the window
+    /// positions are read back (no keys are pressed). dotnet run -- --screenfit exe
+    /// </summary>
+    public static int ScreenFitUi(string exe)
+    {
+        int failures = 0;
+        void Check(bool ok, string what) { Console.WriteLine($"{(ok ? "PASS" : "FAIL")}  {what}"); if (!ok) failures++; }
+
+        (Process App, AutomationElement? Main) Open(string area)
+        {
+            var psi = new ProcessStartInfo(exe, "--no-elevate") { UseShellExecute = false };
+            psi.Environment["DISKIMAGER_TEST_WORKAREA"] = area;
+            var p = Process.Start(psi)!;
+            var main = WaitFor(() => { p.Refresh(); return p.MainWindowHandle != IntPtr.Zero ? AutomationElement.FromHandle(p.MainWindowHandle) : null; }, 20);
+            Thread.Sleep(1500);
+            return (p, main);
+        }
+        double Scale(AutomationElement w) => w.Current.BoundingRectangle.Width / 1260.0; // physical pixels per DIP, from the normal width
+
+        // 1. A big enough screen: normal size, centred on the usable area.
+        var (app, main) = Open("0,0,1600,1000");
+        try
+        {
+            Check(main != null, "big screen: main window opens");
+            if (main != null)
+            {
+                var r = main.Current.BoundingRectangle;
+                double s = Scale(main);
+                var state = ((WindowPattern)main.GetCurrentPattern(WindowPattern.Pattern)).Current.WindowVisualState;
+                Check(state == WindowVisualState.Normal && Math.Abs(r.Left / s - 170) < 3 && Math.Abs(r.Top / s - 90) < 3,
+                    $"big screen: normal size, centred (at {r.Left / s:0},{r.Top / s:0}; expected 170,90)");
+            }
+        }
+        finally { try { app.Kill(); app.WaitForExit(3000); } catch { } }
+
+        // 2. A laptop (1366×768 with the taskbar): the 1260×820 window doesn't fit, so it opens maximised.
+        (app, main) = Open("0,0,1366,728");
+        try
+        {
+            Check(main != null && ((WindowPattern)main.GetCurrentPattern(WindowPattern.Pattern)).Current.WindowVisualState == WindowVisualState.Maximized,
+                "laptop screen: main window opens maximised, so the title bar and buttons are on screen");
+        }
+        finally { try { app.Kill(); app.WaitForExit(3000); } catch { } }
+
+        // 3. A short screen: the tall job editor fits inside it and scrolls, with its title bar on screen.
+        (app, main) = Open("0,0,1600,560");
+        try
+        {
+            if (main != null)
+            {
+                Select(main, "Scheduled backups");
+                var newJob = WaitFor(() => All(main, ControlType.Button).FirstOrDefault(b => b.Current.Name.StartsWith("New job")), 5);
+                if (newJob != null) Invoke(newJob);
+                var title = new PropertyCondition(AutomationElement.NameProperty, "New scheduled backup");
+                var dlg = WaitFor(() => main.FindFirst(TreeScope.Children, title) ?? AutomationElement.RootElement.FindFirst(TreeScope.Children, title), 8);
+                Check(dlg != null, "short screen: job editor opens");
+                if (dlg != null)
+                {
+                    Thread.Sleep(800);
+                    var r = dlg.Current.BoundingRectangle;
+                    double s = (double)dlg.Current.BoundingRectangle.Width / 680;
+                    Check(r.Top >= -1 && r.Height / s <= 560 - 24 + 2 && r.Bottom / s <= 560 + 2,
+                        $"short screen: job editor fits ({r.Height / s:0} of 560 tall, from {r.Top / s:0} to {r.Bottom / s:0})");
+                    var save = All(dlg, ControlType.Button).FirstOrDefault(b => b.Current.Name == "Save job");
+                    Check(save != null, "short screen: the Save job button is still there (reached by scrolling)");
+                }
+            }
+        }
+        finally { try { app.Kill(); app.WaitForExit(3000); } catch { } }
+
+        Console.WriteLine(failures == 0 ? "SCREEN FIT TESTS PASSED" : $"{failures} SCREEN FIT TEST(S) FAILED");
+        return failures == 0 ? 0 : 1;
+    }
+
     private static void ShotWindow(string folder, string name, AutomationElement window)
     {
         try

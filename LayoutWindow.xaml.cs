@@ -42,6 +42,7 @@ public partial class LayoutWindow : Window
         DiskInfo? preselect, int? sourceDisk)
     {
         InitializeComponent();
+        ScreenFit.Attach(this);
         Title = Heading.Text = heading;
         Explain.Text = explanation;
         _src = src;

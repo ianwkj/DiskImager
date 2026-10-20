@@ -13,6 +13,7 @@ public partial class PasswordWindow : Window
     public PasswordWindow(ImageHeader header)
     {
         InitializeComponent();
+        ScreenFit.Attach(this);
         _info = header.Encryption!;
         DetailText.Text = $"Enter the password for the {header.JobName} backup from {header.ComputerName} ({header.CreatedUtc.ToLocalTime():g}).";
         Loaded += (_, _) => PassBox.Focus();

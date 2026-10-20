@@ -18,6 +18,7 @@ public partial class CountdownWindow : Window
     public CountdownWindow(BackgroundStatus s)
     {
         InitializeComponent();
+        ScreenFit.Attach(this);
         PromptId = s.PromptId;
         _endsUtc = s.CountdownEndsUtc ?? DateTime.UtcNow + JobRunner.CountdownLength;
         _totalSeconds = Math.Max(1, JobRunner.CountdownLength.TotalSeconds);

@@ -29,6 +29,7 @@ public partial class FileBrowserWindow : Window
     public FileBrowserWindow(ImageReader image, Logger log)
     {
         InitializeComponent();
+        ScreenFit.Attach(this);
         _image = image;
         _log = log;
         var h = image.Header;

@@ -17,6 +17,7 @@ public partial class ProgressWindow : Window
     public ProgressWindow()
     {
         InitializeComponent();
+        ScreenFit.Attach(this);
         // Closing just hides to the taskbar; the tray helper decides when it really goes away.
         Closing += (_, e) =>
         {

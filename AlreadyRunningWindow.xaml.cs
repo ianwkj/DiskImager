@@ -13,6 +13,7 @@ public partial class AlreadyRunningWindow : Window
     public AlreadyRunningWindow(bool canSwitch)
     {
         InitializeComponent();
+        ScreenFit.Attach(this);
         if (canSwitch)
         {
             DetailText.Text = "Only one DiskImager window can be open at a time. Switch to the one that's already open.";

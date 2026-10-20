@@ -14,6 +14,7 @@ public partial class RescueBuilderWindow : Window
     public RescueBuilderWindow(Logger log)
     {
         InitializeComponent();
+        ScreenFit.Attach(this);
         _log = log;
         IsoBox.Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "DiskImager-Rescue.iso");
         Loaded += async (_, _) => await LoadUsb();

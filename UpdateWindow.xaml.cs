@@ -28,6 +28,7 @@ public partial class UpdateWindow : Window
     public UpdateWindow(UpdateInfo update, TimeSpan? countdown, Func<string?> blockedReason, Logger log)
     {
         InitializeComponent();
+        ScreenFit.Attach(this);
         _update = update;
         _log = log;
         _blockedReason = blockedReason;
