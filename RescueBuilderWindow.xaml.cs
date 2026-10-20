@@ -54,9 +54,9 @@ public partial class RescueBuilderWindow : Window
         DiskInfo? usb = null;
         if (!iso)
         {
-            if (UsbList.SelectedIndex < 0) { MessageBox.Show(this, "Choose the USB stick to use.", "Rescue USB"); return; }
+            if (UsbList.SelectedIndex < 0) { AppMessage.Show(this, "Choose the USB stick to use.", "Rescue USB"); return; }
             usb = _usb[UsbList.SelectedIndex];
-            if (MessageBox.Show(this, $"Everything on {usb.Title} will be erased.\n\nContinue?", "Erase USB stick",
+            if (AppMessage.Show(this, $"Everything on {usb.Title} will be erased.\n\nContinue?", "Erase USB stick",
                     MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         }
         string? isoPath = iso ? IsoBox.Text.Trim() : null;
@@ -71,7 +71,7 @@ public partial class RescueBuilderWindow : Window
         {
             await Task.Run(() => RescueMedia.Build(new RescueMedia.Options { UsbDisk = usb, IsoPath = isoPath, AddDrivers = drivers }, progress, CancellationToken.None, _log));
             StatusText.Text = "Done.";
-            MessageBox.Show(this, iso
+            AppMessage.Show(this, iso
                     ? $"The rescue ISO is ready:\n{isoPath}\n\nBoot a server or virtual machine from it, or burn it to a DVD."
                     : "The rescue USB stick is ready.\n\nTo use it: plug it into the PC, turn the PC on and open its boot menu (often F12, F11 or Esc), then choose the USB stick.",
                 "Rescue media", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -81,7 +81,7 @@ public partial class RescueBuilderWindow : Window
         {
             _log.Error("Rescue media: " + ex);
             StatusText.Text = "Couldn't create the rescue media: " + ex.Message;
-            MessageBox.Show(this, "Couldn't create the rescue media:\n\n" + ex.Message, "Rescue media", MessageBoxButton.OK, MessageBoxImage.Error);
+            AppMessage.Show(this, "Couldn't create the rescue media:\n\n" + ex.Message, "Rescue media", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {

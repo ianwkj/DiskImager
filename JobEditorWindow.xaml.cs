@@ -211,7 +211,7 @@ public partial class JobEditorWindow : Window
         PageScroll.ScrollToVerticalOffset(PageScroll.VerticalOffset - e.Delta / 3.0);
     }
 
-    private void Warn(string message) => MessageBox.Show(this, message, "Check the details", MessageBoxButton.OK, MessageBoxImage.Warning);
+    private void Warn(string message) => AppMessage.Show(this, message, "Check the details", MessageBoxButton.OK, MessageBoxImage.Warning);
 
     // ------------------------------------------------------------------ step checks
 
@@ -312,11 +312,11 @@ public partial class JobEditorWindow : Window
                 if (free < need) s += "\n\n⚠ That's not enough space for a full backup.";
                 return s;
             });
-            MessageBox.Show(this, "Destination OK: DiskImager can write there." + space, "Test", MessageBoxButton.OK, MessageBoxImage.Information);
+            AppMessage.Show(this, "DiskImager can write there." + space, "Destination test", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, "Can't write to that location:\n\n" + ex.Message, "Test", MessageBoxButton.OK, MessageBoxImage.Error);
+            AppMessage.Show(this, "DiskImager can't write to that location.\n\n" + ex.Message, "Destination test", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -532,7 +532,7 @@ public partial class JobEditorWindow : Window
         {
             var disk = _disks[DiskList.SelectedIndex];
             if (DiskEnumerator.DiskNumberOfPath(dest) == disk.Number &&
-                MessageBox.Show(this, "The destination is on the same disk you're backing up. If that disk fails you lose the backup too.\n\nContinue anyway?",
+                AppMessage.Show(this, "The destination is on the same disk you're backing up. If that disk fails you lose the backup too.\n\nContinue anyway?",
                     "Same disk", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
             {
                 Show(1);

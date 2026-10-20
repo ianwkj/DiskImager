@@ -181,7 +181,7 @@ public sealed class TrayAgent
     private void StopBackup()
     {
         if (_activePid == 0) return;
-        if (MessageBox.Show("Stop the backup that's running now? Nothing from this run will be saved; earlier backups are kept.",
+        if (AppMessage.Show("Stop the backup that's running now? Nothing from this run will be saved; earlier backups are kept.",
                 "DiskImager", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
             AgentChannel.RequestCancel(_activePid);
     }

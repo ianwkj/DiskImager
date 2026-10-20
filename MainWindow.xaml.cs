@@ -195,7 +195,7 @@ public partial class MainWindow : Window
     {
         var job = SelectedJob();
         if (job == null) return;
-        if (MessageBox.Show(this, $"Delete the job '{job.Name}' and its schedule?\n\nExisting image files are kept.",
+        if (AppMessage.Show(this, $"Delete the job '{job.Name}' and its schedule?\n\nExisting image files are kept.",
                 "Delete job", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
         TaskSchedulerService.Unregister(job);
         var jobs = JobStore.Load();
@@ -877,14 +877,14 @@ public partial class MainWindow : Window
     private void Cancel_Click(object sender, RoutedEventArgs e)
     {
         if (_cts == null) return;
-        if (MessageBox.Show(this, "Stop the current operation?\n\nA cancelled restore or clone leaves the target disk unusable until you run it again.",
+        if (AppMessage.Show(this, "Stop the current operation?\n\nA cancelled restore or clone leaves the target disk unusable until you run it again.",
                 "Cancel", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
             _cts?.Cancel();
     }
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
-        if (_cts != null && MessageBox.Show(this, "An operation is still running. Close anyway and cancel it?", "DiskImager",
+        if (_cts != null && AppMessage.Show(this, "An operation is still running. Close anyway and cancel it?", "DiskImager",
                 MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
         {
             e.Cancel = true;
@@ -898,6 +898,6 @@ public partial class MainWindow : Window
         ? "\n\nOne or more file systems couldn't be extended automatically. See the Log tab for how to finish it."
         : "";
 
-    private void Info(string msg) => MessageBox.Show(this, msg, "DiskImager", MessageBoxButton.OK, MessageBoxImage.Information);
-    private void Error(string msg) => MessageBox.Show(this, msg, "DiskImager", MessageBoxButton.OK, MessageBoxImage.Error);
+    private void Info(string msg) => AppMessage.Show(this, msg, "DiskImager", MessageBoxButton.OK, MessageBoxImage.Information);
+    private void Error(string msg) => AppMessage.Show(this, msg, "DiskImager", MessageBoxButton.OK, MessageBoxImage.Error);
 }

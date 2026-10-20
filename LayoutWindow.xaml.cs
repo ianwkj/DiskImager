@@ -518,7 +518,7 @@ public partial class LayoutWindow : Window
         DialogResult = true;
     }
 
-    private void Warn(string msg) => MessageBox.Show(this, msg, Title, MessageBoxButton.OK, MessageBoxImage.Warning);
+    private void Warn(string msg) => AppMessage.Show(this, msg, Title, MessageBoxButton.OK, MessageBoxImage.Warning);
 }
 
 /// <summary>A resize handle that screen readers and UI automation can find (a plain Border is invisible to them).</summary>

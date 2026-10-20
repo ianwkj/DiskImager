@@ -73,7 +73,7 @@ public partial class ProgressWindow : Window
 
     private void Cancel_Click(object sender, RoutedEventArgs e)
     {
-        if (MessageBox.Show(this, "Stop this backup now? Nothing from this run will be saved; earlier backups are kept.",
+        if (AppMessage.Show(this, "Stop this backup now? Nothing from this run will be saved; earlier backups are kept.",
                 "Stop backup", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         AgentChannel.RequestCancel(_processId);
         StageText.Text = "Stopping…";

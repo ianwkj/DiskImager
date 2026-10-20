@@ -1,0 +1,36 @@
+<Window x:Class="DiskImager.MessageWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DiskImager" Width="480" SizeToContent="Height"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False" Icon="app.ico"
+        FontFamily="{StaticResource UiFont}" FontSize="13">
+    <Border Margin="14" Background="White" CornerRadius="14" BorderBrush="{StaticResource CardBorder}" BorderThickness="1"
+            MouseLeftButtonDown="Card_MouseLeftButtonDown">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="24" ShadowDepth="4" Direction="270" Opacity="0.22" Color="#0F172A"/>
+        </Border.Effect>
+        <StackPanel Margin="22,20,22,18">
+            <DockPanel>
+                <Border x:Name="IconTile" DockPanel.Dock="Left" Width="42" Height="42" CornerRadius="21" VerticalAlignment="Top">
+                    <TextBlock x:Name="IconGlyph" FontFamily="{StaticResource IconFont}" FontSize="19"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <StackPanel Margin="16,0,0,0">
+                    <TextBlock x:Name="CaptionText" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Muted}"/>
+                    <TextBlock x:Name="HeadingText" FontSize="16" FontWeight="SemiBold" Margin="0,3,0,0" TextWrapping="Wrap"/>
+                    <!-- Read-only text box styled as text, so error details can be selected and copied. -->
+                    <TextBox x:Name="BodyText" IsReadOnly="True" BorderThickness="0" Background="Transparent" Padding="0" Margin="-2,8,0,0"
+                             TextWrapping="Wrap" Foreground="#475569" FontSize="13" MaxHeight="320" VerticalScrollBarVisibility="Auto">
+                        <TextBox.Template>
+                            <ControlTemplate TargetType="TextBox">
+                                <ScrollViewer x:Name="PART_ContentHost" Focusable="False" Margin="0"/>
+                            </ControlTemplate>
+                        </TextBox.Template>
+                    </TextBox>
+                </StackPanel>
+            </DockPanel>
+            <StackPanel x:Name="Buttons" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0"/>
+        </StackPanel>
+    </Border>
+</Window>

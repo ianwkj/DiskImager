@@ -191,7 +191,7 @@ public partial class FileBrowserWindow : Window
             if (result.Problems.Count > 0)
                 msg += $"\n\n{result.Problems.Count} item(s) couldn't be copied:\n• " + string.Join("\n• ", result.Problems.Take(8)) +
                        (result.Problems.Count > 8 ? "\n… (the full list is in the Activity log)" : "");
-            MessageBox.Show(this, msg, "Copy finished", MessageBoxButton.OK, result.Problems.Count > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
+            AppMessage.Show(this, msg, "Copy finished", MessageBoxButton.OK, result.Problems.Count > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
         }
         catch (OperationCanceledException) { Done("Copy stopped. Files copied so far were kept."); }
         catch (Exception ex) { Done("Copy failed: " + ex.Message); }

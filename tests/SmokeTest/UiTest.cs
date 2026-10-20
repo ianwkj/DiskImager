@@ -406,6 +406,8 @@ static class UiTest
             Invoke(Button(dlg, "Next")!);
             var warn = Popup(dlg, "Check the details");
             Check(warn != null && Shows(warn, "Give the job a name"), "wizard: Next checks the step (job name needed)");
+            Check(warn != null && warn.Current.ClassName != "#32770", "pop-ups: DiskImager's own message window, not the plain Windows box");
+            if (warn != null) ShotWindow(shots, "popup-warning", warn);
             Close(warn);
             Check(ById(dlg, "NameBox") != null, "wizard: stays on the step that needs fixing");
             SetValue(ById(dlg, "NameBox")!, "Wizard test");
@@ -418,6 +420,21 @@ static class UiTest
             SetValue(dest!, @"E:\Backups");
             Thread.Sleep(300);
             Check(ById(dlg, "UserBox") == null, "wizard: no network login for a local folder");
+            // Test button: a folder that works (info), and one that doesn't (error).
+            string okFolder = Path.Combine(Path.GetTempPath(), "diskimager-popup-test");
+            Directory.CreateDirectory(okFolder);
+            SetValue(dest!, okFolder);
+            Invoke(Button(dlg, "Test")!);
+            var info = Popup(dlg, "Destination test");
+            Check(info != null && Shows(info, "DiskImager can write there"), "pop-ups: Test shows the result in the app's style");
+            if (info != null) ShotWindow(shots, "popup-info", info);
+            Close(info);
+            SetValue(dest!, @"Q:\Nowhere\Backups");
+            Invoke(Button(dlg, "Test")!);
+            var err = Popup(dlg, "Destination test");
+            Check(err != null && Shows(err, "can't write to that location"), "pop-ups: a failed Test shows an error");
+            if (err != null) ShotWindow(shots, "popup-error", err);
+            Close(err);
             SetValue(dest!, @"\\NAS\Backups\WizardTest");
             Thread.Sleep(300);
             Check(ById(dlg, "UserBox") != null, "wizard: network login appears for a NAS path");

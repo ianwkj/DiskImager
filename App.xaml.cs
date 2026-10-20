@@ -94,7 +94,7 @@ public partial class App : Application
             }
             catch (Win32Exception)
             {
-                MessageBox.Show("DiskImager needs administrator permission to read and write disks. Please open it again and choose Yes.",
+                AppMessage.Show("DiskImager needs administrator permission to read and write disks. Please open it again and choose Yes.",
                     "DiskImager", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             Shutdown(0);
@@ -152,7 +152,7 @@ public partial class App : Application
 
         DispatcherUnhandledException += (_, ex) =>
         {
-            MessageBox.Show(ex.Exception.Message, "DiskImager", MessageBoxButton.OK, MessageBoxImage.Error);
+            AppMessage.Show(ex.Exception.Message, "DiskImager", MessageBoxButton.OK, MessageBoxImage.Error);
             ex.Handled = true;
         };
         var main = new MainWindow();
@@ -165,23 +165,23 @@ public partial class App : Application
         const string title = "Uninstall DiskImager";
         if (Uninstaller.BackupInProgress())
         {
-            MessageBox.Show("A scheduled backup is running or about to start. Wait for it to finish, then uninstall again.",
+            AppMessage.Show("A scheduled backup is running or about to start. Wait for it to finish, then uninstall again.",
                 title, MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-        if (MessageBox.Show("Remove DiskImager from this computer?\n\nScheduled backups will stop. Your backup images are not deleted.",
+        if (AppMessage.Show("Remove DiskImager from this computer?\n\nScheduled backups will stop. Your backup images are not deleted.",
                 title, MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-        bool removeSettings = MessageBox.Show(
+        bool removeSettings = AppMessage.Show(
             "Also delete DiskImager's settings, backup jobs and logs?\n\nChoose No to keep them, for example if you'll reinstall later.",
             title, MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
         try
         {
             Uninstaller.Uninstall(removeSettings, new Logger());
-            MessageBox.Show("DiskImager has been removed.", title, MessageBoxButton.OK, MessageBoxImage.Information);
+            AppMessage.Show("DiskImager has been removed.", title, MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
         {
-            MessageBox.Show("DiskImager couldn't be fully removed: " + ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Error);
+            AppMessage.Show("DiskImager couldn't be fully removed: " + ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
