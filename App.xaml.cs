@@ -211,7 +211,7 @@ public partial class App : Application
         catch (UnauthorizedAccessException) { return false; }
     }
 
-    /// <summary>Tells the user DiskImager is already open and brings that window to the front if it's in this session.</summary>
+    /// <summary>Tells the user DiskImager is already open and offers to bring that window to the front if it's in this session.</summary>
     private static void AlreadyRunning()
     {
         IntPtr existing = IntPtr.Zero;
@@ -219,15 +219,15 @@ public partial class App : Application
         {
             int session = Process.GetCurrentProcess().SessionId;
             existing = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(Environment.ProcessPath!))
-                .Where(p => p.Id != Environment.ProcessId && p.SessionId == session && p.MainWindowHandle != IntPtr.Zero)
+                // The main window only: tray helpers in this session may have small windows of their own.
+                .Where(p => p.Id != Environment.ProcessId && p.SessionId == session && p.MainWindowHandle != IntPtr.Zero
+                            && p.MainWindowTitle.StartsWith("DiskImager – Powered", StringComparison.Ordinal))
                 .Select(p => p.MainWindowHandle).FirstOrDefault();
         }
         catch { }
-        MessageBox.Show(existing != IntPtr.Zero
-                ? "DiskImager is already running.\n\nClick OK to switch to it."
-                : "DiskImager is already running.\n\nOnly one DiskImager window can be open at a time. It may be minimised, or open in another user's session on this PC.",
-            "DiskImager", MessageBoxButton.OK, MessageBoxImage.Information);
-        if (existing != IntPtr.Zero)
+        var dlg = new AlreadyRunningWindow(canSwitch: existing != IntPtr.Zero);
+        dlg.ShowDialog();
+        if (dlg.SwitchChosen && existing != IntPtr.Zero)
         {
             if (IsIconic(existing)) ShowWindow(existing, 9); // SW_RESTORE
             SetForegroundWindow(existing);
